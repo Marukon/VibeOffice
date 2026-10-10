@@ -247,6 +247,9 @@
   function shapeXML(sh, ctx, design) {
     if (ctx.designTemplate) return '';
     const id = ctx.nextId(sh.id);
+    /* SmartArt made or edited here (js/diagram.js): written as SmartArt; one opened and not edited goes back as it came */
+    /* (PowerPoint's own SmartArt changed only as shapes, not through its items, goes the frames' way: kept or converted) */
+    if (ctx.writer && sh.type === 'group' && sh.sa && !sh.sa.office && !(sh.keep?.frame && L.frames.intact(sh, ctx))) return diagramFrameXML(sh, id, ctx, design);
     if (ctx.writer && sh.keep?.frame) {
       const kept = L.frames.emit(sh, ctx);
       if (kept != null) return kept;
@@ -358,6 +361,45 @@
       rid = ctx.rels.add(RT('chart'), ctx.part ? K.relative(ctx.part, `ppt/charts/chart${n}.xml`) : `../charts/chart${n}.xml`);
     }
     return `<p:graphicFrame><p:nvGraphicFramePr>${cNvPr(id, sh, ctx)}<p:cNvGraphicFramePr/>${phXML(sh.ph)}</p:nvGraphicFramePr>${xfrm(sh, 'p:xfrm')}<a:graphic><a:graphicData uri="${NS_C}"><c:chart xmlns:c="${NS_C}" r:id="${rid}"/></a:graphicData></a:graphic></p:graphicFrame>`;
+  }
+  /** a diagram as SmartArt: data, layout, style and colour parts (js/smartart-io.js), and the drawing of its laid-out
+      shapes, which applications without a SmartArt engine show */
+  function diagramFrameXML(sh, id, ctx, design) {
+    L.diagram.capture(sh);   // formatting given to its shapes since the last layout
+    if (sh.sa.converted) ctx.writer.loss({ id: 'smartart-layout:' + sh.id, what: `This IntelliArt is saved with Lectern's ${(L.smartart.get(sh.sa.layout) || {}).name} layout and its own colours and style, because it was edited here.`, where: sh.name || ctx.part, place: ctx.place, action: 'conversion' });
+    const IO = L.saIO, NS_DGM = IO.NS.dgm, NS_DSP = IO.NS.dsp;
+    const ctD = 'application/vnd.openxmlformats-officedocument.drawingml.';
+    const rel = (name, type) => ctx.rels.add(type, K.relative(ctx.part, name));
+    /* each item's shape takes the id of the pres point that shows it, as in PowerPoint's files */
+    IO.dataXML(sh.sa, sh.id, 'rId1');
+    const presOf = IO.lastPres || new Map(), usedPres = new Set();
+    const modelId = (k, i) => { const p = k.sa && k.sa.role === 'node' && presOf.get(IO.guid(sh.id + ':' + k.sa.item)); if (p && !usedPres.has(p)) { usedPres.add(p); return p; } return IO.guid(sh.id + ':sp:' + i); };
+    const sps = (sh.kids || []).map((k, i) => {
+      const local = Object.assign({}, k, { x: k.x - sh.x, y: k.y - sh.y });
+      /* the drawing is a part of its own: picture fills and text links (relationships of the slide) are not written in it */
+      let kf = k.fill;
+      if (kf && !['solid', 'grad', 'none', 'patt'].includes(kf.t)) {
+        ctx.writer.loss({ id: 'smartart-fill:' + sh.id + ':' + i, what: 'A picture fill on a shape of this IntelliArt is saved as the diagram\'s colour.', where: sh.name || ctx.part, place: ctx.place, action: 'conversion', notify: true });
+        kf = { t: 'solid', c: 'accent1', a: 1 };
+      }
+      const fill = kf ? fillXML(kf, ctx, design) : '';
+      if (k.tx) { local.tx = L.clone(k.tx); for (const p of local.tx.ps) for (const r of p.rs) delete r.link; }
+      const ln = k.line ? lineXML(k.line, design) : '';
+      const tx = local.tx ? txBodyXML(local.tx, ctx, design, 'dsp:txBody') : '';
+      const r = k.txRect, txX = r ? `<dsp:txXfrm><a:off x="${emu(local.x + r[0])}" y="${emu(local.y + r[1])}"/><a:ext cx="${Math.max(0, emu(r[2] - r[0]))}" cy="${Math.max(0, emu(r[3] - r[1]))}"/></dsp:txXfrm>` : '';
+      return `<dsp:sp modelId="${modelId(k, i)}"><dsp:nvSpPr><dsp:cNvPr id="0" name=""/><dsp:cNvSpPr/></dsp:nvSpPr><dsp:spPr>${xfrm(local)}${geomXML(k)}${fill}${ln}${shadowXML(k.shadow, design)}</dsp:spPr>${tx}${txX}</dsp:sp>`;
+    }).join('');
+    const drawing = HEAD + `<dsp:drawing xmlns:dgm="${NS_DGM}" xmlns:dsp="${NS_DSP}" xmlns:a="${NS_A}"><dsp:spTree><dsp:nvGrpSpPr><dsp:cNvPr id="0" name=""/><dsp:cNvGrpSpPr/></dsp:nvGrpSpPr><dsp:grpSpPr/>${sps}</dsp:spTree></dsp:drawing>`;
+    const dr = rel(ctx.addPart('ppt/diagrams', 'drawing', drawing, 'application/vnd.ms-office.drawingml.diagramDrawing+xml'), 'http://schemas.microsoft.com/office/2007/relationships/diagramDrawing');
+    const fmt = (f) => ({
+      spPr: (f.fill ? fillXML(f.fill, ctx, design) : '') + (f.line ? lineXML(f.line, design) : ''),
+      rPr: f.color || f.b || f.i ? { attrs: (f.b ? ' b="1"' : '') + (f.i ? ' i="1"' : ''), inner: f.color ? `<a:solidFill>${clr(f.color, 1, design)}</a:solidFill>` : '' } : null,
+    });
+    const dm = rel(ctx.addPart('ppt/diagrams', 'data', IO.dataXML(sh.sa, sh.id, dr, fmt), ctD + 'diagramData+xml'), RT('diagramData'));
+    const lo = rel(ctx.addPart('ppt/diagrams', 'layout', IO.layoutXML(sh.sa.layout), ctD + 'diagramLayout+xml'), RT('diagramLayout'));
+    const qs = rel(ctx.addPart('ppt/diagrams', 'quickStyle', IO.styleXML(sh.sa.style), ctD + 'diagramStyle+xml'), RT('diagramQuickStyle'));
+    const cs = rel(ctx.addPart('ppt/diagrams', 'colors', IO.colorsXML(sh.sa.colors, L.diagram.palette(design)), ctD + 'diagramColors+xml'), RT('diagramColors'));
+    return `<p:graphicFrame><p:nvGraphicFramePr>${cNvPr(id, sh, ctx)}<p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>${xfrm(sh, 'p:xfrm')}<a:graphic><a:graphicData uri="${NS_DGM}"><dgm:relIds xmlns:dgm="${NS_DGM}" r:dm="${dm}" r:lo="${lo}" r:qs="${qs}" r:cs="${cs}"/></a:graphicData></a:graphic></p:graphicFrame>`;
   }
   /** chart XML from the chart model: charts made or edited in Lectern */
   function chartXML(c, design) {
@@ -956,6 +998,8 @@
         idOf: (mid) => idMap.get(mid),
         findShape: (mid) => L.model.shapeById(s, mid),
         addChart: (xml, parts) => { chartN++; charts.push({ n: chartN, xml, parts }); return chartN; },
+        /** a new part of this slide (SmartArt): a free name in dir, added with its content type */
+        addPart: (dir, base, xml, ct) => { const name = freshName(dir, base, 'xml'); add(name, xml); overrides.push(['/' + name, ct]); return name; },
       };
       L.model.walk(s.shapes, shape => { ctx.nextId(shape.id); return true; });
       ctx.liveShapeIds = new Set(Array.from(idMap.values(), String));

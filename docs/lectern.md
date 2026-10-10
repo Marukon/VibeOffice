@@ -1,6 +1,6 @@
 # Lectern 2003 — Web Edition
 
-A presentation editor modeled on PowerPoint 2003 (Luna Blue), written in plain HTML and vanilla JavaScript with no frameworks and no build step. It opens and saves real `.pptx` files.
+A presentation editor modeled on PowerPoint 2003, written in plain HTML and vanilla JavaScript with no frameworks and no build step. It opens and saves real `.pptx` files. In the suite's Paper 2016 look (Themes on the Start Center, or Tools ▸ Options ▸ General ▸ Theme) a ribbon with PowerPoint 2016's tabs (Home, Insert, Design, Transitions, Animations, Slide Show, Review, View and the tool tabs) takes the place of the menus and toolbars.
 
 Open https://vibeoffice.work/lectern/ (to run it locally, see [testing.md](testing.md)). The app is `public/lectern/`; every path below is relative to it, except `tools/`. It runs in any modern browser (Chrome, Edge, Firefox, Safari). Everything runs locally; nothing is uploaded, including the passwords of protected presentations.
 
@@ -8,7 +8,7 @@ Open https://vibeoffice.work/lectern/ (to run it locally, see [testing.md](testi
 
 | File | Responsibility |
 |---|---|
-| `index.html` | Window chrome, Luna CSS, slide rendering styles, script order |
+| `index.html` | Window chrome CSS, slide rendering styles, script order |
 | `../common/core.js` | Utilities, colors, fonts, file I/O, media store, PDF writer (shared, see docs/suite.md) |
 | `../common/sha.js`, `../common/crypto.js` | Password-protected presentations: ECMA-376 Agile and Standard encryption (AES, SHA-1/SHA-2), read and write |
 | `../common/zip.js` | ZIP reader/writer (CompressionStream with a pure-JS inflate fallback) |
@@ -22,7 +22,8 @@ Open https://vibeoffice.work/lectern/ (to run it locally, see [testing.md](testi
 | `../common/numfmt.js` | Excel number formats (dates, currency, percentages, sections) for chart axes and data labels |
 | `../common/charts.js` | Chart model, the PowerPoint 2003 look for charts made here, datasheet and chart options dialog (17 chart types with `js/chart-draw.js`) |
 | `js/chart-draw.js` | Drawing of charts that come from PowerPoint 2007 and later (see *Charts* below) |
-| `../common/ui.js`, `../common/icons.js`, `../common/clipart.js`, `../common/luna.css` | Menus, command bars, combo boxes, dialogs, color pickers, tooltips |
+| `../common/ui.js`, `../common/search.js`, `../common/icons.js`, `../common/clipart.js`, `../common/looks.css`, `../common/ui.css` | Menus, command bars, combo boxes, dialogs, color pickers, tooltips, Search commands |
+| `js/ribbon.js`, `../common/ribbon.js` | The Paper 2016 look's ribbon: PowerPoint's tabs and groups over Lectern's commands ([suite.md](suite.md#the-ribbon)) |
 | `js/editor.js` | Slide editing surface: select, move, resize, rotate, crop, draw, grid |
 | `js/textedit.js` | Rich text editing, bullets, levels, AutoCorrect, tables |
 | `js/dialogs.js` | Font, Bullets, Format AutoShape, Fill Effects, Header & Footer, Options (with Security), etc. |
@@ -30,6 +31,7 @@ Open https://vibeoffice.work/lectern/ (to run it locally, see [testing.md](testi
 | `js/slideshow.js` | Full-screen show, 58 transitions, 50+ entrance/emphasis/exit/motion-path effects, pen, rehearse timings |
 | `js/preserve.js` | Package ownership and settings merges; model-attached media, playback, property invalidation and clipboard dependencies |
 | `js/comments.js` | Legacy/modern comment ownership, author dependencies, copied identities and anchors |
+| `js/diagram.js`, `js/smartart-io.js`, `../common/smartart.js` | IntelliArt (SmartArt): the diagram object, gallery, text pane, Diagram toolbar and SmartArt Tools; its SmartArt parts; the layout engine (see *IntelliArt (SmartArt)*) |
 | `js/frames.js` | Opaque frame membership, geometry, diagram/VML dependencies and preview clipboard transport |
 | `js/pptx-read.js` | PresentationML import (themes, masters, layouts, placeholders, table styles, charts, SmartArt, custom geometry, animations; repairs damaged packages) |
 | `js/pptx-write.js` | PresentationML export (validated against the OOXML schema) |
@@ -57,6 +59,33 @@ Charts read from a file are drawn the way PowerPoint draws them:
 * gap width and overlap, series and point colours (including colours that come from the chart style or a theme override), marker symbols and sizes, line widths and dashes, data labels (value, percentage, category, series name, custom text with fields, values from cells), legends in every position or placed by hand, manual plot-area layout, multi-level category labels, wrapped or turned category labels.
 
 A chart that is not edited in Lectern is saved exactly as it came: its XML, the embedded Excel workbook, the chart style and colour parts and any theme override travel with it, so PowerPoint can still open the data in Excel. Once the datasheet or chart options are changed (double-click the chart), the chart is written from Lectern's model, keeping colours, labels, axis settings and gap width. New charts keep the PowerPoint 2003 look.
+
+## IntelliArt (SmartArt)
+
+IntelliArt is Lectern's name for its diagrams; in the file they are Office SmartArt. Insert ▸ Diagram (IntelliArt on the ribbon, or the diagram icon of a content placeholder) opens a gallery of 26 layouts by category, each pictured in the design's colours:
+
+| Category | Layouts |
+|---|---|
+| List | Basic Block List, Vertical Bullet List, Stacked List, Horizontal Bullet List, Lined List, Vertical Box List |
+| Process | Basic Process, Basic Chevron Process, Step Up Process, Continuous Arrow Process, Vertical Process, Basic Timeline |
+| Cycle | Basic Cycle, Basic Radial, Continuous Cycle |
+| Hierarchy | Organization Chart, Hierarchy, Horizontal Hierarchy |
+| Relationship | Basic Venn, Basic Target, Linear Venn, Funnel |
+| Matrix | Basic Matrix |
+| Pyramid | Basic Pyramid, Inverted Pyramid, Pyramid List |
+ The new diagram takes an empty content placeholder, or the middle of the slide.
+
+* **Text pane** (opens on insert; Text Pane on the Diagram toolbar or IntelliArt Tools ▸ Design): one line per item. Enter adds an item, Tab and Shift+Tab demote and promote it, Alt+Shift+↑/↓ move it, Backspace on an empty line removes it; the diagram follows as you type. Text typed into a shape on the slide goes back to its item too.
+* **Diagram toolbar / IntelliArt Tools:** Add Shape (after, before, above, below), Promote, Demote, Move Up, Move Down, Change Layout (keeps the text), Change Colors (one accent, Colorful, Gradient Range), Styles (Simple Fill, White Outline, Subtle, Moderate, Intense), Reset Graphic, Convert to Shapes. Delete on a shape removes its item.
+* **Formatting one shape** (fill, outline, font colour, bold, italic, through the usual commands) is kept on its item: it survives Add Shape, a new layout or resizing, is saved in the SmartArt data as PowerPoint stores it (the point's shape properties and text run), and comes back on reopening. Reset Graphic removes it.
+* **Layout:** resizing lays the diagram out again. All items show their text at one size, the largest at which every item fits (with room to spare for applications that draw text wider). Colours are theme slots, so a new design recolours the diagram; accents too close to the slide background are skipped and light fills get dark text.
+* **Saving:** a diagram made or edited here is saved as real SmartArt: the data (its items), our own layout, style and colour definitions (`urn:vibeoffice.work/diagram/…`, written from our layouts, not copied from Office's), and the drawing of its shapes for applications that do not lay SmartArt out themselves. Model ids are stable, so an unedited diagram saves byte for byte. Reopened in Lectern, it is editable again.
+* **In the sample deck and templates:** the sample's "How we choose a city" is a Funnel; the templates use a Basic Chevron Process (Project Status Report), a Vertical Process agenda (Team Meeting), a Basic Radial (Lesson) and a Basic Timeline (Event Announcement). Decks built in code use `L.diagram.make(pres, slide, placeholder or box, layout, lines)`, where a tab before a line makes it a sub-item.
+* **SmartArt PowerPoint made** in a layout we also have (Office's `default`, `orgChart1`, `hierarchy1`/`2`, `vList2`, `hList1`, `process1`/`2`, `chevron1`, `hProcess11`, `cycle2`/`3`, `radial1`, `venn1`/`3`, `target1`, `funnel1`, `matrix1`, `pyramid1`/`2`/`3`; `OFFICE` in `smartart-io.js`) opens as an editable diagram: its items, colours and style are read from the file, and it is shown and saved exactly as PowerPoint made it until its items are edited here (text pane, typing in a shape, Add Shape, a gallery). From then on it is laid out and saved with our layout of the same name (a toast says so when it happens; the save records the change). Changed only as shapes (moved, a shape recoloured, ungrouped), it is kept or converted as other SmartArt is. Diagrams with picture-filled shapes stay as they came. Each item is one paragraph of plain text here, so an item with several paragraphs is joined into one line when the diagram is first edited, and an org chart's assistants become ordinary members.
+* **Other SmartArt** (layouts we do not have) is shown and kept as before (*Opaque frames*); editing its contents converts it to shapes, with a notice.
+* **Measured on the corpus** (2026-10-10, `tools/lectern/test/smartart-office.py`): of the 43 decks with a mapped layout (50 of their 84 diagrams open editable), every unedited save keeps every diagram part byte-identical; editing one diagram in each (42 decks) gives saves with no new `package.py` findings and no Open XML SDK diagnostics, and each reopens with that diagram editable. LibreOffice draws the edited diagrams.
+
+Checked (2026-10-10): a deck with one diagram per layout (26) passes the Open XML SDK validator and `package.py`; LibreOffice 25.2 draws every one from the saved drawing (upside-down layers are drawn as outlines so their text stays upright); reopened in Lectern all 26 are editable, and editing one rewrites only its parts (the other 25 byte-identical). With the first ten, LibreOffice also re-saved them as SmartArt and Lectern reopened that copy with all ten editable. PowerPoint opened our hand-written process diagram with and without the drawing and edited it (text pane, Add Shape, Change Colors); after Add Shape it laid the boxes out taller than our engine does, which a later PowerPoint check of every layout will settle.
 
 ## Slide size
 
@@ -326,7 +355,7 @@ counts. Four pages load without console errors. All 15 batch-4 samples passed Po
 ## Known limits
 
 * Legacy binary `.ppt` files must be re-saved as `.pptx` first. Macro-enabled OOXML variants keep their VBA; see *What a save keeps, converts and drops* for the remaining preservation gaps.
-* SmartArt is displayed as grouped shapes and keeps its original frame until the group's content is edited or ungrouped. When a file carries only diagram data, Lectern draws it with a built-in layout family, so unusual layouts can look simpler in the editor.
+* SmartArt in a layout Lectern does not have is displayed as grouped shapes and keeps its original frame until the group's content is edited or ungrouped; PowerPoint SmartArt edited here takes our layout of the same name, so its look in PowerPoint changes to ours (*IntelliArt (SmartArt)*). When a file carries only diagram data, Lectern draws it with a built-in layout family, so unusual layouts can look simpler in the editor.
 * 3-D charts are drawn in a fixed oblique view (no perspective, no lighting); surface charts, trendlines and error bars are not drawn (they are kept in unedited charts).
 * Embedded OLE objects and ActiveX controls import as their preview pictures.
 * Fonts that aren't installed fall back to metric-compatible ones: Carlito, Caladea and Gelasio (for Calibri, Cambria and Georgia) are served with the site, and Save as Web Page embeds the ones its slides name; Arial, Times New Roman and Courier New use the computer's own copies or the Liberation/Arimo/Tinos/Cousine fonts of the same widths where installed.

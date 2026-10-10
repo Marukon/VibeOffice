@@ -390,7 +390,7 @@
     if (!shapes.length) return;
     const s0 = shapes[0];
     const isPic = s0.type === 'image', isLine = s0.type === 'line', isWA = s0.type === 'wordart', isTable = s0.type === 'table';
-    const title = isPic ? 'Format Picture' : isLine ? 'Format AutoShape' : isWA ? 'Format WordArt' : s0.ph ? 'Format Placeholder' : s0.type === 'text' ? 'Format Text Box' : isTable ? 'Format Table' : 'Format AutoShape';
+    const title = isPic ? 'Format Picture' : isLine ? 'Format AutoShape' : isWA ? 'Format LettersArt' : s0.ph ? 'Format Placeholder' : s0.type === 'text' ? 'Format Text Box' : isTable ? 'Format Table' : 'Format AutoShape';
     const ch = {}; /* changes */
     const srcFill = isWA ? s0.wa.fill : s0.fill;
     const srcLine = isWA ? s0.wa.line : s0.line;
@@ -850,9 +850,10 @@
     const undo = ui.spin({ value: L.hist.limit, min: 3, max: 150, step: 1, dec: 0 });
     const user = h('input', { type: 'text', id: 'op-user', value: L.pres.props.author || '', style: 'width:220px' });
     const pwOpen = h('input', { type: 'password', id: 'op-pw', value: L.pres.password || '', autocomplete: 'new-password', style: 'width:180px' });
+    const look = ui.lookField();
     const tabs = ui.tabs([
       { label: 'View', body: h('div', { class: 'col' }, ui.group('Show', c('Startup &Task Pane', 'startupPane'), c('&Slide Layout task pane when inserting new slides', 'layoutPaneOnNew'), c('Stat&us bar', 'statusBar'), c('&Vertical ruler', 'ruler')), ui.group('Slide show', c('&Popup menu on right mouse click', 'showPopup'), c('Show popup menu &button', 'showPopbar'), c('&End with black slide', 'endBlack'))) },
-      { label: 'General', body: h('div', { class: 'col' }, ui.group('User information', ui.field('&Name:', user)), c('Recently used file &list', 'recent')) },
+      { label: 'General', body: h('div', { class: 'col' }, look && look.el, ui.group('User information', ui.field('&Name:', user)), c('Recently used file &list', 'recent')) },
       { label: 'Edit', body: h('div', { class: 'col' }, ui.group('Text', c('Replace straight &quotes with smart quotes', 'smartQuotes'), c('&AutoCorrect as you type', 'autocorrect'), c('Capitalize first letter of &sentences', 'capSentence')), ui.group('Undo', ui.field('&Maximum number of undos:', undo, { cls: 'wide' }))) },
       { label: 'Spelling and Style', body: h('div', { class: 'col' }, ui.group('Spelling', c('Check spelling as you &type', 'spell')), h('div', { class: 'tp-note', text: 'Spelling suggestions come from your browser. Hold Shift while right-clicking a word to see them.' })) },
       { label: 'Security', body: h('div', { class: 'col' }, ui.group('File encryption settings for this document', ui.field('Password to &open:', pwOpen, { cls: 'wide' })), h('div', { class: 'tp-note', text: 'The presentation is encrypted (AES-256) the next time you save it as a PowerPoint file, the way PowerPoint 2007 and later do. Leave the box empty to save it without a password. If you lose or forget the password, it cannot be recovered.' })) },
@@ -867,7 +868,7 @@
       setTimeout(() => p2.focus(), 0);
       return true;
     };
-    ui.dialog({ title: 'Options', body: tabs, width: 460, buttons: [{ label: 'OK', primary: true, onClick: () => { L.hist.limit = undo.get(); L.pres.props.author = user.value; L.app.saveOpts(); L.app.applyOpts(); applyPw(); } }, { label: 'Cancel', onClick: () => { L.app.loadOpts(); } }] });
+    ui.dialog({ title: 'Options', body: tabs, width: 460, buttons: [{ label: 'OK', primary: true, onClick: () => { L.hist.limit = undo.get(); L.pres.props.author = user.value; L.app.saveOpts(); L.app.applyOpts(); if (look) look.apply(); applyPw(); } }, { label: 'Cancel', onClick: () => { L.app.loadOpts(); } }] });
   };
 
   /* ---------- AutoCorrect ---------- */
@@ -952,14 +953,14 @@
     let pick = current != null ? current : 0;
     const grid = h('div', { class: 'wa-grid' });
     WA_STYLES.forEach((st, i) => {
-      const b = h('button', { type: 'button', 'aria-label': 'WordArt style ' + (i + 1), class: i === pick ? 'on' : '' });
-      const sh = { w: 66, h: 46, wa: Object.assign({}, st, { text: 'WordArt', vert: false }) };
+      const b = h('button', { type: 'button', 'aria-label': 'LettersArt style ' + (i + 1), class: i === pick ? 'on' : '' });
+      const sh = { w: 66, h: 46, wa: Object.assign({}, st, { text: 'LettersArt', vert: false }) };
       b.appendChild(L.render.wordart(sh, design(), {}));
       b.addEventListener('click', () => { L.$$('button', grid).forEach((x) => x.classList.remove('on')); b.classList.add('on'); pick = i; });
       b.addEventListener('dblclick', () => { okb.click(); });
       grid.appendChild(b);
     });
-    const d = ui.dialog({ title: 'WordArt Gallery', body: h('div', { class: 'col' }, h('label', { text: 'Select a WordArt style:' }), grid), width: 470, buttons: [{ label: 'OK', primary: true, onClick: () => cb(pick) }, { label: 'Cancel' }] });
+    const d = ui.dialog({ title: 'LettersArt Gallery', body: h('div', { class: 'col' }, h('label', { text: 'Select a LettersArt style:' }), grid), width: 470, buttons: [{ label: 'OK', primary: true, onClick: () => cb(pick) }, { label: 'Cancel' }] });
     const okb = d.buttons[0];
   };
   D.wordartText = function (init, cb) {
@@ -971,39 +972,8 @@
     const sync = () => { ta.style.fontFamily = L.fontStack(font.value); ta.style.fontWeight = b.input.checked ? '700' : '400'; ta.style.fontStyle = i.input.checked ? 'italic' : 'normal'; };
     font.addEventListener('change', sync); b.input.addEventListener('change', sync); i.input.addEventListener('change', sync);
     sync();
-    ui.dialog({ title: 'Edit WordArt Text', body: h('div', { class: 'col' }, h('div', { class: 'row' }, ui.field('&Font:', font), ui.field('&Size:', size), b, i), h('label', { for: 'wa-text', html: '<u>T</u>ext:' }), ta), width: 470, focus: '#wa-text', buttons: [{ label: 'OK', primary: true, onClick: () => cb({ text: ta.value, font: font.value, b: b.input.checked, i: i.input.checked, size: +size.value }) }, { label: 'Cancel' }] });
+    ui.dialog({ title: 'Edit LettersArt Text', body: h('div', { class: 'col' }, h('div', { class: 'row' }, ui.field('&Font:', font), ui.field('&Size:', size), b, i), h('label', { for: 'wa-text', html: '<u>T</u>ext:' }), ta), width: 470, focus: '#wa-text', buttons: [{ label: 'OK', primary: true, onClick: () => cb({ text: ta.value, font: font.value, b: b.input.checked, i: i.input.checked, size: +size.value }) }, { label: 'Cancel' }] });
   };
-
-  /* ---------- Diagram Gallery ---------- */
-  D.DIAGRAMS = [['org', 'Organization Chart'], ['cycle', 'Cycle Diagram'], ['radial', 'Radial Diagram'], ['pyramid', 'Pyramid Diagram'], ['venn', 'Venn Diagram'], ['target', 'Target Diagram']];
-  D.diagramGallery = function (cb) {
-    let pick = 'org';
-    const grid = h('div', { class: 'dg-grid' });
-    const desc = h('div', { class: 'tp-note', text: 'Used to show hierarchical relationships' });
-    const DESC = { org: 'Used to show hierarchical relationships', cycle: 'Used to show a process that has a continuous cycle', radial: 'Used to show relationships of elements to a core element', pyramid: 'Used to show foundation-based relationships', venn: 'Used to show areas of overlap between elements', target: 'Used to show steps toward a goal' };
-    D.DIAGRAMS.forEach(([k, n]) => {
-      const b = h('button', { type: 'button', 'aria-label': n, 'data-tip': n, class: k === pick ? 'on' : '' });
-      b.innerHTML = diagramIcon(k);
-      b.addEventListener('click', () => { L.$$('button', grid).forEach((x) => x.classList.remove('on')); b.classList.add('on'); pick = k; title.textContent = n; desc.textContent = DESC[k]; });
-      b.addEventListener('dblclick', () => okb.click());
-      grid.appendChild(b);
-    });
-    const title = h('b', { text: 'Organization Chart' });
-    const d = ui.dialog({ title: 'Diagram Gallery', body: h('div', { class: 'col' }, h('label', { text: 'Select a diagram type:' }), grid, title, desc), width: 320, buttons: [{ label: 'OK', primary: true, onClick: () => cb(pick) }, { label: 'Cancel' }] });
-    const okb = d.buttons[0];
-  };
-  function diagramIcon(k) {
-    const S = (b) => `<svg width="70" height="58" viewBox="0 0 70 58">${b}</svg>`;
-    switch (k) {
-      case 'org': return S('<rect x="25" y="4" width="20" height="12" fill="#cfe0fb" stroke="#1d4f9e"/><rect x="4" y="38" width="18" height="12" fill="#cfe0fb" stroke="#1d4f9e"/><rect x="26" y="38" width="18" height="12" fill="#cfe0fb" stroke="#1d4f9e"/><rect x="48" y="38" width="18" height="12" fill="#cfe0fb" stroke="#1d4f9e"/><path d="M35 16v11M13 27h44M13 27v11M35 27v11M57 27v11" stroke="#1d4f9e" fill="none"/>');
-      case 'cycle': return S('<path d="M35 6a23 23 0 0 1 21 14" fill="none" stroke="#3a74d6" stroke-width="5"/><path d="M56 34a23 23 0 0 1-21 18" fill="none" stroke="#e8641c" stroke-width="5"/><path d="M22 50A23 23 0 0 1 14 16" fill="none" stroke="#2f9a3a" stroke-width="5"/>');
-      case 'radial': return S('<circle cx="35" cy="29" r="9" fill="#3a74d6"/><circle cx="35" cy="8" r="6" fill="#cfe0fb" stroke="#1d4f9e"/><circle cx="56" cy="29" r="6" fill="#cfe0fb" stroke="#1d4f9e"/><circle cx="35" cy="50" r="6" fill="#cfe0fb" stroke="#1d4f9e"/><circle cx="14" cy="29" r="6" fill="#cfe0fb" stroke="#1d4f9e"/><path d="M35 14v6M41 29h9M35 38v6M20 29h6" stroke="#1d4f9e"/>');
-      case 'pyramid': return S('<path d="M35 4l9 14H26z" fill="#e8641c"/><path d="M25 20h20l8 14H17z" fill="#f5c842"/><path d="M15 36h40l9 16H6z" fill="#2f9a3a"/>');
-      case 'venn': return S('<circle cx="27" cy="22" r="15" fill="#3a74d6" fill-opacity=".55"/><circle cx="43" cy="22" r="15" fill="#e8641c" fill-opacity=".55"/><circle cx="35" cy="36" r="15" fill="#2f9a3a" fill-opacity=".55"/>');
-      case 'target': return S('<circle cx="35" cy="29" r="24" fill="#cfe0fb" stroke="#1d4f9e"/><circle cx="35" cy="29" r="16" fill="#9cbcf0" stroke="#1d4f9e"/><circle cx="35" cy="29" r="8" fill="#3a74d6" stroke="#1d4f9e"/>');
-      default: return '';
-    }
-  }
 
   /* ---------- Photo Album ---------- */
   D.photoAlbum = function () {

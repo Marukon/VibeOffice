@@ -32,6 +32,24 @@ Check after a change to `suite.js` or to an app's start, open or save code: `<ap
 
 Templates: `node tools/templates.mjs` opens every template (`<app>/?template=<id>`) and fails on a script error or a missing preview; look at the new previews in the Create File view.
 
+## Looks
+
+`node --test tools/looks.test.mjs` checks `public/common/looks.css`: every look sets every setting, every setting the chrome uses exists, `ui.css` has no colours of its own, and each page picks the look before its stylesheets load. A change to chrome CSS is also checked in every look: the browser profile keeps `localStorage`, so set the look in a step and set it back at the end (other runs would otherwise start in it):
+
+    node tools/shot.mjs ledger/ '[{"js":"VO.look.set(\"paper\")","wait":800,"shot":"paper.png"},{"js":"VO.look.set(\"classic\")"}]'
+
+Classic must not change when only the theme machinery changes: compare screenshots of the same scenes before and after, pixel for pixel.
+
+`node --test tools/ribbon.test.mjs` loads each app in the Paper 2016 look (through `tools/shot.mjs`, so Chromium must be running) and checks its ribbon: every command id exists, every button has an icon, and every menu command is reachable from the ribbon or File, apart from the exceptions listed in the test. Run it after adding or renaming a command. A ribbon change is also looked at in a narrow window (`--w 900`, where groups fold) and with KeyTips shown (`L.app.menuBar.openIndex(0)`).
+
+`node --test tools/search.test.mjs` checks Search commands the same way: in each app and both layouts, a table of everyday queries ("image", "margins", "hyperlnk") must find the intended command first, with its location. Add a line there when a query finds the wrong thing.
+
+## SmartArt
+
+`node --test tools/smartart.test.mjs` runs the layout engine (`public/common/smartart.js`) in Node: every layout, for 1 to 7 items, gives finite shapes inside the box, one shape per item it shows, and one text size within the limits. A change to the SmartArt writer (`public/lectern/js/smartart-io.js`, `diagramFrameXML` in `pptx-write.js`) is checked on a deck with one diagram per layout: save it from Lectern, run the Open XML SDK validator and `tools/ooxml/package.py check` on it, convert it with LibreOffice to PDF (does every diagram draw, with no word broken) and to PPTX, and reopen both copies in Lectern (every diagram editable again). Keep the decks and renders in `./tmp`.
+
+`python3 tools/lectern/test/smartart-office.py OUT [name]` checks SmartArt that PowerPoint made, in the corpus decks whose layouts Lectern has: unedited saves keep every diagram part byte-identical, an edit through the items gives a save with no new `package.py` findings, and that save reopens with the diagram editable (`OUT/results.json`). It removes the Recent Files entries it makes; run the SDK validator on `OUT/*-edited.pptx` too.
+
 ## Quire: tools/quire/test/
 
 | | |

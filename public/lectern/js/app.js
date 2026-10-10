@@ -9,10 +9,10 @@
   const E = L.ed;
   const TE = L.te;
 
-  /* original application icon: a lectern carrying a slide */
+  /* original application icon, drawn like Quire's and Ledger's: a page with a tile carrying a presentation screen */
   L.icons.app = function (size) {
     const sz = size || 16;
-    return `<svg class="appico" width="${sz}" height="${sz}" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 1.5h12v8H2z" fill="#fff8e1" stroke="#b5651d"/><path d="M3 3h10v2.2H3z" fill="#e8641c"/><path d="M4 6.6h5M4 8h7" stroke="#b5651d" stroke-width=".8"/><path d="M5 10h6l1 4.5H4z" fill="#8c5a2b" stroke="#5a3a1a"/><path d="M3 14.5h10" stroke="#5a3a1a" stroke-width="1.2"/></svg>`;
+    return `<svg class="appico" width="${sz}" height="${sz}" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 1.5h8l3 3v10h-11z" fill="#fff" stroke="#a8471a"/><path d="M11.5 1.5v3h3" fill="#fbe3d6" stroke="#a8471a"/><rect x="1.5" y="4.5" width="7" height="8" fill="#d2602a" stroke="#93401a"/><path d="M2.9 6.3h4.2v3.1H2.9z" fill="none" stroke="#fff" stroke-width="1.1"/><path d="M5 9.4v1.4M3.7 11.3l1.3-.9 1.3.9" fill="none" stroke="#fff" stroke-width="1"/><path d="M9.8 6.8h3.6v2.7H9.8z" fill="none" stroke="#c99a7e"/><path d="M10 11.5h3.2" stroke="#c99a7e"/></svg>`;
   };
   /* the slide editor around commands, toolbar boxes and dialogs (common/ui.js) */
   ui.hooks = {
@@ -32,7 +32,7 @@
   const DEFAULT_OPTS = {
     startupPane: true, layoutPaneOnNew: true, statusBar: true, ruler: false, showPopup: true, showPopbar: true, endBlack: true,
     smartQuotes: true, autocorrect: true, capSentence: true, spell: true, autoPreview: true, gray: false, bw: false, outlinePlain: false, alignToSlide: false,
-    toolbars: { standard: true, formatting: true, drawing: true, outlining: false, picture: 'auto', tables: 'auto', wordart: 'auto' },
+    toolbars: { standard: true, formatting: true, drawing: true, outlining: false, picture: 'auto', tables: 'auto', wordart: 'auto', diagram: 'auto' },
     grid: { show: false, snap: true, size: 6 }, leftW: 196, notesH: 92, leftOpen: true, taskOpen: true,
   };
   const A = (L.app = Object.assign(L.app || {}, {
@@ -87,9 +87,7 @@
     void autoShapeSub;
     const row = L.$('#menurow');
     A.menuBar = ui.menuBar(row, menus);
-    const q = h('input', { type: 'text', id: 'helpq', placeholder: 'Type a question for help', 'aria-label': 'Type a question for help' });
-    q.addEventListener('keydown', (e) => { if (e.key === 'Enter') { L.panes.helpQuery = q.value; L.panes.task.show('help'); q.value = ''; E.refocus(); } e.stopPropagation(); });
-    row.appendChild(h('div', { class: 'helpbox' }, q, h('span', { class: 'dd-arrow' })));
+    row.appendChild(ui.searchBox());
   }
 
   function shapeGrid(list, close) {
@@ -179,34 +177,49 @@
       ui.refresh();
     });
   }
+  /* the toolbars' boxes and menus, also used by the ribbon (js/ribbon.js): each call makes a new box */
+  A.parts = {
+    font: (o) => ui.combo(Object.assign({ id: 'tb-font', width: 136, tip: 'Font', options: () => { const d = E.slide() && L.pres.designs[E.slide().design]; return L.fontSections({ major: d?.fonts?.major, minor: d?.fonts?.minor }); }, preview: (v) => `font-family:${L.fontStack(v)};font-size:13px`, note: L.fontNote, listCls: 'fonts', value: () => { const s = textState(); return s ? s.font : ''; }, enabled: () => !!textState(), onChange: (v) => A.setFontName(v) }, o)),
+    size: (o) => ui.combo(Object.assign({ id: 'tb-size', width: 44, tip: 'Font Size', options: () => L.SIZE_LIST, value: () => { const s = textState(); return s && s.sz ? String(L.round(s.sz, 1)) : ''; }, enabled: () => !!textState(), onChange: (v) => A.setFontSize(parseFloat(v)) }, o)),
+    zoom: (o) => ui.combo(Object.assign({ id: 'tb-zoom', width: 52, tip: 'Zoom', options: () => ['Fit', '400%', '200%', '150%', '100%', '75%', '66%', '50%', '33%', '25%'], value: () => (E.zoom === 'fit' ? 'Fit' : E.zoomPct() + '%'), onChange: (v) => { if (/fit/i.test(v)) E.setZoom('fit'); else { const n = parseFloat(v); if (n > 0) E.setZoom(n / 100); } } }, o)),
+  };
+  A.menus = {
+    color: (kind) => colorDD(kind), autoShapes: (r) => openAutoShapes(r), draw: (r) => drawMenu(r), lineStyle: (r) => lineStyleMenu(r), dash: (r) => dashMenu(r), arrow: (r) => arrowMenu(r), shadow: (r) => shadowMenu(r),
+    picColor: (r) => ui.openMenu([{ label: '&Automatic', run: () => A.picMode('') }, { label: '&Grayscale', run: () => A.picMode('gray') }, { label: '&Black & White', run: () => A.picMode('bw') }, { label: '&Washout', run: () => A.picMode('wash') }], r),
+    tableBorders: (r) => ui.openMenu([{ custom: (close) => { const g = h('div', { class: 'shape-grid', style: 'grid-template-columns:repeat(4,24px)' }); for (const [k, ic, n] of [['all', 'bordersAll', 'All Borders'], ['out', 'bordersOut', 'Outside Borders'], ['in', 'bordersIn', 'Inside Borders'], ['none', 'bordersNone', 'No Border'], ['t', 'bordersTop', 'Top Border'], ['b', 'bordersBottom', 'Bottom Border'], ['l', 'bordersLeft', 'Left Border'], ['r', 'bordersRight', 'Right Border']]) { const bt = h('button', { type: 'button', 'data-tip': n, 'aria-label': n, html: L.icons.get(ic) }); bt.addEventListener('click', () => { close(); A.tableBorders(k); }); g.appendChild(bt); } return g; } }], r),
+    tableFill: (r, b) => ui.colorMenu(b, { mode: 'fill', effects: true }, async (v) => { if (v && v.none) A.tableFill({ t: 'none' }); else if (v && v.effects) { const f = await L.dlg.fillEffects({ t: 'solid', c: 'accent1' }); if (f) A.tableFill(f); } else if (typeof v === 'string') A.tableFill({ t: 'solid', c: v, a: 1 }); }),
+    waShape: (r) => ui.openMenu(L.render.WARPS.map(([k, n]) => ({ label: n, run: () => A.waSet({ warp: k }), checked: () => { const s = E.primary(); return !!(s && s.wa && (s.wa.warp || 'textPlain') === k); } })), r),
+  };
   function buildToolbars() {
     const host = L.$('#toolbars');
-    const fontCombo = ui.combo({ id: 'tb-font', width: 136, tip: 'Font', options: () => { const d = E.slide() && L.pres.designs[E.slide().design]; return L.fontSections({ major: d?.fonts?.major, minor: d?.fonts?.minor }); }, preview: (v) => `font-family:${L.fontStack(v)};font-size:13px`, note: L.fontNote, listCls: 'fonts', value: () => { const s = textState(); return s ? s.font : ''; }, enabled: () => !!textState(), onChange: (v) => A.setFontName(v) });
-    const sizeCombo = ui.combo({ id: 'tb-size', width: 44, tip: 'Font Size', options: () => L.SIZE_LIST, value: () => { const s = textState(); return s && s.sz ? String(L.round(s.sz, 1)) : ''; }, enabled: () => !!textState(), onChange: (v) => A.setFontSize(parseFloat(v)) });
-    const zoomCombo = ui.combo({ id: 'tb-zoom', width: 52, tip: 'Zoom', options: () => ['Fit', '400%', '200%', '150%', '100%', '75%', '66%', '50%', '33%', '25%'], value: () => (E.zoom === 'fit' ? 'Fit' : E.zoomPct() + '%'), onChange: (v) => { if (/fit/i.test(v)) E.setZoom('fit'); else { const n = parseFloat(v); if (n > 0) E.setZoom(n / 100); } } });
+    const fontCombo = A.parts.font(), sizeCombo = A.parts.size(), zoomCombo = A.parts.zoom();
     A.toolbarsEl = {
       standard: ui.toolbar('standard', 'Standard', ['new', 'open', 'save', '|', 'print', 'printPreview', 'spelling', '|', 'cut', 'copy', 'paste', 'painter', '|', 'undo', 'redo', '|', 'insertChart', 'insertTable', ui.tbButton('tb_tables', { icon: 'tablesBorders' }), 'hyperlink', '|', 'expandAll', 'showFormatting', 'showGrid', ui.tbSplit('viewGray', (r) => ui.openMenu(['viewColor', 'viewGray', 'viewBW'], r)), zoomCombo, 'help']),
       formatting: ui.toolbar('formatting', 'Formatting', [fontCombo, sizeCombo, 'bold', 'italic', 'underline', 'shadowText', '|', 'alignLeft', 'alignCenter', 'alignRight', '|', 'numbering', 'bullets', '|', 'growFont', 'shrinkFont', '|', 'promote', 'demote', '|', ui.tbSplit('fontColor', colorDD('font')), '|', ui.tbButton('slideDesign', { label: 'Design' }), ui.tbButton('newSlide', { label: 'New Slide' })]),
       outlining: ui.toolbar('outlining', 'Outlining', ['promote', 'demote', 'moveParaUp', 'moveParaDown', '|', 'summarySlide', 'showFormatting']),
-      picture: ui.toolbar('picture', 'Picture', ['insertPicture', ui.tbDrop('', 'colorPic', (r) => ui.openMenu([{ label: '&Automatic', run: () => A.picMode('') }, { label: '&Grayscale', run: () => A.picMode('gray') }, { label: '&Black & White', run: () => A.picMode('bw') }, { label: '&Washout', run: () => A.picMode('wash') }], r), 'Color'), 'picMoreContrast', 'picLessContrast', 'picMoreBright', 'picLessBright', '|', 'picCrop', 'rotateLeft', ui.tbDrop('', 'lineStyle', lineStyleMenu, 'Line Style'), '|', ui.tbButton('formatObject', { icon: 'formatPicture' }), 'picTransparent', 'picReset']),
+      picture: ui.toolbar('picture', 'Picture', ['insertPicture', ui.tbDrop('', 'colorPic', A.menus.picColor, 'Color'), 'picMoreContrast', 'picLessContrast', 'picMoreBright', 'picLessBright', '|', 'picCrop', 'rotateLeft', ui.tbDrop('', 'lineStyle', lineStyleMenu, 'Line Style'), '|', ui.tbButton('formatObject', { icon: 'formatPicture' }), 'picTransparent', 'picReset']),
       tables: ui.toolbar('tables', 'Tables and Borders', [ui.tbDrop('', 'dashStyle', (r) => ui.openMenu([{ custom: (close) => listPanel(L.dlg.DASHES.map(([k, n]) => ({ html: lineSVG(2, (L.render.dashArray(k, 2) || '').replace(/,/g, ' ')), label: n, run: () => { A.tblBorder.dash = k; } })), close) }], r), 'Border Style'),
         ui.tbDrop('', 'lineStyle', (r) => ui.openMenu([{ custom: (close) => listPanel(WEIGHTS.map((w) => ({ html: lineSVG(Math.max(0.5, w * 1.33)), label: w + ' pt', run: () => { A.tblBorder.w = w; } })), close) }], r), 'Border Width'),
         ui.tbDrop('', 'lineColor', (r, b) => ui.colorMenu(b, { mode: 'plain', grid: true }, (v) => { if (typeof v === 'string') A.tblBorder.c = v; }), 'Border Color'),
-        ui.tbDrop('', 'bordersAll', (r) => ui.openMenu([{ custom: (close) => { const g = h('div', { class: 'shape-grid', style: 'grid-template-columns:repeat(4,24px)' }); for (const [k, ic, n] of [['all', 'bordersAll', 'All Borders'], ['out', 'bordersOut', 'Outside Borders'], ['in', 'bordersIn', 'Inside Borders'], ['none', 'bordersNone', 'No Border'], ['t', 'bordersTop', 'Top Border'], ['b', 'bordersBottom', 'Bottom Border'], ['l', 'bordersLeft', 'Left Border'], ['r', 'bordersRight', 'Right Border']]) { const bt = h('button', { type: 'button', 'data-tip': n, 'aria-label': n, html: L.icons.get(ic) }); bt.addEventListener('click', () => { close(); A.tableBorders(k); }); g.appendChild(bt); } return g; } }], r), 'Borders'),
-        ui.tbDrop('', 'fillColor', (r, b) => ui.colorMenu(b, { mode: 'fill', effects: true }, async (v) => { if (v && v.none) A.tableFill({ t: 'none' }); else if (v && v.effects) { const f = await L.dlg.fillEffects({ t: 'solid', c: 'accent1' }); if (f) A.tableFill(f); } else if (typeof v === 'string') A.tableFill({ t: 'solid', c: v, a: 1 }); }), 'Fill Color'),
+        ui.tbDrop('', 'bordersAll', A.menus.tableBorders, 'Borders'),
+        ui.tbDrop('', 'fillColor', A.menus.tableFill, 'Fill Color'),
         '|', ui.tbDrop('Table', null, (r) => ui.openMenu(['insertTable', '-', 'colLeft', 'colRight', 'rowAbove', 'rowBelow', '-', 'deleteCols', 'deleteRows', '-', 'mergeCells', 'splitCell', '-', 'selectTable', '-', 'tableBordersFill'], r), 'Table'),
         'mergeCells', 'splitCell', '|', 'cellTop', 'cellMiddle', 'cellBottom', '|', 'distRows', 'distCols']),
-      wordart: ui.toolbar('wordart', 'WordArt', ['insertWordArt', ui.tbButton('wordartEdit', { label: 'Edit Text...' }), 'wordartGallery', ui.tbButton('formatObject', { icon: 'formatPicture' }),
-        ui.tbDrop('', 'waShape', (r) => ui.openMenu(L.render.WARPS.map(([k, n]) => ({ label: n, run: () => A.waSet({ warp: k }), checked: () => { const s = E.primary(); return !!(s && s.wa && (s.wa.warp || 'textPlain') === k); } })), r), 'WordArt Shape'),
+      wordart: ui.toolbar('wordart', 'LettersArt', ['insertWordArt', ui.tbButton('wordartEdit', { label: 'Edit Text...' }), 'wordartGallery', ui.tbButton('formatObject', { icon: 'formatPicture' }),
+        ui.tbDrop('', 'waShape', A.menus.waShape, 'LettersArt Shape'),
         'waSameHeight', 'waVertical',
-        ui.tbDrop('', 'alignCenter', (r) => ui.openMenu([['l', '&Left Align'], ['ctr', '&Center'], ['r', '&Right Align']].map(([k, n]) => ({ label: n, run: () => A.waSet({ algn: k }) })), r), 'WordArt Alignment'),
-        ui.tbDrop('', 'charSpacing', (r) => ui.openMenu([[-3, '&Very Tight'], [-1.5, '&Tight'], [0, '&Normal'], [2, '&Loose'], [4, 'V&ery Loose']].map(([k, n]) => ({ label: n, run: () => A.waSet({ spc: k }) })), r), 'WordArt Character Spacing')]),
+        ui.tbDrop('', 'alignCenter', (r) => ui.openMenu([['l', '&Left Align'], ['ctr', '&Center'], ['r', '&Right Align']].map(([k, n]) => ({ label: n, run: () => A.waSet({ algn: k }) })), r), 'LettersArt Alignment'),
+        ui.tbDrop('', 'charSpacing', (r) => ui.openMenu([[-3, '&Very Tight'], [-1.5, '&Tight'], [0, '&Normal'], [2, '&Loose'], [4, 'V&ery Loose']].map(([k, n]) => ({ label: n, run: () => A.waSet({ spc: k }) })), r), 'LettersArt Character Spacing')]),
       master: ui.toolbar('master', 'Slide Master View', ['insertTitleMaster', 'deleteTitleMaster', '|', ui.tbButton('closeMaster', { label: 'Close Master View' })]),
       sorter: ui.toolbar('sorter', 'Slide Sorter', ['hideSlide', 'rehearse', '|', 'summarySlide', 'speakerNotes', '|', ui.tbButton('transitionPane', { label: 'Transition' }), ui.tbButton('slideDesign', { label: 'Design' }), ui.tbButton('newSlide', { label: 'New Slide' })]),
     };
     const row1 = h('div', { class: 'tb-row' }, A.toolbarsEl.standard);
     const row2 = h('div', { class: 'tb-row' }, A.toolbarsEl.formatting, A.toolbarsEl.outlining);
-    const row3 = h('div', { class: 'tb-row' }, A.toolbarsEl.picture, A.toolbarsEl.tables, A.toolbarsEl.wordart, A.toolbarsEl.master, A.toolbarsEl.sorter);
+    /* SmartArt (js/diagram.js): the Diagram toolbar of a selected diagram */
+    const DGM = () => L.diagram;
+    A.toolbarsEl.diagram = ui.toolbar('diagram', 'Diagram', [ui.tbSplit('diagramAddShape', (r) => ui.openMenu(['diagramAddAfter', 'diagramAddBefore', 'diagramAddAbove', 'diagramAddBelow'], r)), 'diagramPromote', 'diagramDemote', 'diagramMoveUp', 'diagramMoveDown', '|',
+      ui.tbDrop('&Layout', 'layout', (r) => DGM().layoutMenu(r), 'Change Layout'), ui.tbDrop('', 'colorPic', (r) => DGM().colorsMenu(r), 'Change Colors'), ui.tbDrop('', 'themes', (r) => DGM().styleMenu(r), 'IntelliArt Styles'), '|', 'diagramTextPane', 'diagramReset', 'diagramToShapes']);
+    const row3 = h('div', { class: 'tb-row' }, A.toolbarsEl.picture, A.toolbarsEl.tables, A.toolbarsEl.wordart, A.toolbarsEl.diagram, A.toolbarsEl.master, A.toolbarsEl.sorter);
     host.append(row1, row2, row3);
     A.tbRows = [row1, row2, row3];
     /* drawing toolbar */
@@ -235,12 +248,19 @@
     if (id === 'picture') return sel.some((s) => s.type === 'image');
     if (id === 'tables') return sel.some((s) => s.type === 'table');
     if (id === 'wordart') return sel.some((s) => s.type === 'wordart');
+    if (id === 'diagram') return !!(L.diagram && L.diagram.current());
     return false;
   }
-  A.toggleToolbar = (id) => { const v = A.opts.toolbars[id]; A.opts.toolbars[id] = v === true ? (['picture', 'tables', 'wordart'].includes(id) ? false : false) : true; A.saveOpts(); A.updateToolbars(); };
+  /** what is selected or shown, for the ribbon's contextual tabs: 'picture', 'table', 'wordart', 'shape', 'diagram', 'master' */
+  A.inContext = (k) => {
+    if (k === 'master') return A.view === 'master';
+    if (k === 'shape') { const p = E.primary && E.primary(); return !!(p && !p.wa && ['shape', 'line', 'group', 'text'].includes(p.type) && !(L.diagram && L.diagram.of(p))); }
+    return ctxToolbar(k === 'table' ? 'tables' : k);
+  };
+  A.toggleToolbar = (id) => { const v = A.opts.toolbars[id]; A.opts.toolbars[id] = v === true ? (['picture', 'tables', 'wordart', 'diagram'].includes(id) ? false : false) : true; A.saveOpts(); A.updateToolbars(); };
   A.updateToolbars = function () {
     if (!A.toolbarsEl) return;
-    for (const id of ['standard', 'formatting', 'drawing', 'outlining', 'picture', 'tables', 'wordart']) A.toolbarsEl[id].hidden = !A.tbShown(id) || (A.view === 'preview');
+    for (const id of ['standard', 'formatting', 'drawing', 'outlining', 'picture', 'tables', 'wordart', 'diagram']) A.toolbarsEl[id].hidden = !A.tbShown(id) || (A.view === 'preview');
     A.toolbarsEl.outlining.hidden = !(A.opts.toolbars.outlining === true || (L.panes.left.tab === 'outline' && A.view === 'normal' && A.opts.toolbars.outlining !== false && false));
     A.toolbarsEl.master.hidden = A.view !== 'master';
     A.toolbarsEl.sorter.hidden = A.view !== 'sorter';
@@ -940,6 +960,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
   A.deleteSel = function () {
     const shapes = E.selected();
     if (!shapes.length) return;
+    if (L.diagram && L.diagram.deleteKids(shapes)) return;
     E.commit('Clear', () => {
       const slide = E.slide();
       for (const sh of shapes) {
@@ -1469,8 +1490,8 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
         const maxLen = Math.max(...lines.map((x) => x.length), 1);
         const hh = Math.min(L.pres.H * 0.6, o.size * 1.5 * lines.length);
         const w = Math.min(L.pres.W * 0.85, maxLen * o.size * 0.75);
-        L.hist.push('Insert WordArt');
-        const sh = { id: L.uid('s'), type: 'wordart', name: 'WordArt ' + (slide.shapes.length + 1), x: (L.pres.W - w) / 2, y: (L.pres.H - hh) / 2, w, h: hh, rot: 0, wa: Object.assign(L.clone(st), { text: o.text, font: o.font, b: o.b, i: o.i, style: idx }) };
+        L.hist.push('Insert LettersArt');
+        const sh = { id: L.uid('s'), type: 'wordart', name: 'LettersArt ' + (slide.shapes.length + 1), x: (L.pres.W - w) / 2, y: (L.pres.H - hh) / 2, w, h: hh, rot: 0, wa: Object.assign(L.clone(st), { text: o.text, font: o.font, b: o.b, i: o.i, style: idx }) };
         slide.shapes.push(sh);
         E.sel = [sh.id];
         E.render(); E.touched(); A.updateToolbars();
@@ -1480,89 +1501,14 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
   A.editWordArt = function () {
     const s = E.primary();
     if (!s || s.type !== 'wordart') return;
-    L.dlg.wordartText(s.wa, (o) => E.commit('Edit WordArt Text', () => { Object.assign(s.wa, { text: o.text, font: o.font, b: o.b, i: o.i }); }));
+    L.dlg.wordartText(s.wa, (o) => E.commit('Edit LettersArt Text', () => { Object.assign(s.wa, { text: o.text, font: o.font, b: o.b, i: o.i }); }));
   };
   A.wordartRestyle = function () {
     const s = E.primary();
-    L.dlg.wordartGallery((idx) => E.commit('WordArt Style', () => { for (const x of E.selected()) if (x.type === 'wordart') { const st = L.clone(L.dlg.WA_STYLES[idx]); x.wa = Object.assign(x.wa, { fill: st.fill, line: st.line, shadow: st.shadow, warp: st.warp, style: idx }); } }), s && s.wa ? s.wa.style : 0);
+    L.dlg.wordartGallery((idx) => E.commit('LettersArt Style', () => { for (const x of E.selected()) if (x.type === 'wordart') { const st = L.clone(L.dlg.WA_STYLES[idx]); x.wa = Object.assign(x.wa, { fill: st.fill, line: st.line, shadow: st.shadow, warp: st.warp, style: idx }); } }), s && s.wa ? s.wa.style : 0);
   };
-  A.waSet = (o) => E.commit('WordArt', () => { for (const s of E.selected()) if (s.type === 'wordart') Object.assign(s.wa, o); });
-  A.waToggle = (k) => E.commit('WordArt', () => { for (const s of E.selected()) if (s.type === 'wordart') s.wa[k] = !s.wa[k]; });
-  A.insertDiagram = function (kind, phId) {
-    const slide = E.slide();
-    if (!slide) return;
-    const ph = phId ? E.shape(phId) : null;
-    const box = ph ? { x: ph.x, y: ph.y, w: ph.w, h: ph.h } : { x: L.pres.W * 0.15, y: L.pres.H * 0.22, w: L.pres.W * 0.7, h: L.pres.H * 0.66 };
-    const kids = buildDiagram(kind, box);
-    L.hist.push('Insert Diagram');
-    const g = { id: L.uid('s'), type: 'group', name: L.dlg.DIAGRAMS.find((d) => d[0] === kind)[1] + ' ' + (slide.shapes.length + 1), rot: 0, kids };
-    Object.assign(g, M.groupBounds(g));
-    if (ph) slide.shapes.splice(slide.shapes.indexOf(ph), 1, g); else slide.shapes.push(g);
-    E.sel = [g.id];
-    E.render(); E.touched();
-  };
-  function buildDiagram(kind, b) {
-    const shp = (geom, x, y, w, hh, fill, text, extra) => Object.assign({ id: L.uid('s'), type: 'shape', name: 'Diagram shape', geom, x, y, w, h: hh, rot: 0, fill, line: { c: 'tx1', w: 0.75, dash: 'solid' }, tx: T.body([T.para(text || '', { algn: 'ctr' }, { sz: Math.max(10, Math.round(Math.min(b.w, b.h) / 22)), color: 'tx1' })], { anchor: 'ctr', wrap: true }) }, extra || {});
-    const ln = (x1, y1, x2, y2) => M.newLine(L.pres, { shapes: [] }, 'line', [x1, y1], [x2, y2]);
-    const acc = (i) => ({ t: 'solid', c: ['accent1', 'accent2', 'accent3', 'accent6', 'accent5', 'accent4'][i % 6], a: 1 });
-    const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
-    const out = [];
-    switch (kind) {
-      case 'org': {
-        const bw = b.w * 0.26, bh = b.h * 0.2;
-        out.push(shp('rect', cx - bw / 2, b.y, bw, bh, acc(0), 'Director'));
-        const ys = b.y + b.h * 0.6;
-        out.push(ln(cx, b.y + bh, cx, b.y + bh + (ys - b.y - bh) / 2));
-        const xs = [b.x + b.w * 0.02, cx - bw / 2, b.x + b.w * 0.98 - bw];
-        out.push(ln(xs[0] + bw / 2, b.y + bh + (ys - b.y - bh) / 2, xs[2] + bw / 2, b.y + bh + (ys - b.y - bh) / 2));
-        xs.forEach((x, i) => { out.push(ln(x + bw / 2, b.y + bh + (ys - b.y - bh) / 2, x + bw / 2, ys)); out.push(shp('rect', x, ys, bw, bh, acc(0), ['Operations', 'Marketing', 'Finance'][i])); });
-        break;
-      }
-      case 'cycle': {
-        const r = Math.min(b.w, b.h) * 0.42;
-        for (let i = 0; i < 3; i++) {
-          const a0 = -90 + i * 120 + 12, a1 = a0 + 96;
-          out.push(shp('circularArrow', cx - r, cy - r, r * 2, r * 2, acc(i), '', { adj: { adj1: 9000, adj2: 1142319, adj3: 20457681, adj4: Math.round((((a0 % 360) + 360) % 360) * 60000), adj5: Math.round((((a1 % 360) + 360) % 360) * 60000) }, line: { t: 'none' } }));
-          const am = ((a0 + 48) * Math.PI) / 180;
-          out.push(shp('rect', cx + Math.cos(am) * r * 1.02 - b.w * 0.11, cy + Math.sin(am) * r * 1.02 - b.h * 0.06, b.w * 0.22, b.h * 0.12, { t: 'none' }, ['Plan', 'Do', 'Review'][i], { line: { t: 'none' }, type: 'text' }));
-        }
-        break;
-      }
-      case 'radial': {
-        const r = Math.min(b.w, b.h) * 0.38, cr = r * 0.42, sr = r * 0.3;
-        for (let i = 0; i < 4; i++) { const a = (-90 + i * 90) * Math.PI / 180; out.push(ln(cx + Math.cos(a) * cr, cy + Math.sin(a) * cr, cx + Math.cos(a) * (r - sr), cy + Math.sin(a) * (r - sr))); }
-        out.push(shp('ellipse', cx - cr, cy - cr, cr * 2, cr * 2, acc(0), 'Core'));
-        for (let i = 0; i < 4; i++) { const a = (-90 + i * 90) * Math.PI / 180; out.push(shp('ellipse', cx + Math.cos(a) * r - sr, cy + Math.sin(a) * r - sr, sr * 2, sr * 2, acc(i + 1), ['North', 'East', 'South', 'West'][i])); }
-        break;
-      }
-      case 'pyramid': {
-        const n = 4, top = b.y, base = b.y + b.h, pw = Math.min(b.w, b.h * 1.3);
-        for (let i = 0; i < n; i++) {
-          const y0 = top + (b.h * i) / n, y1 = top + (b.h * (i + 1)) / n;
-          const w0 = (pw * (y0 - top)) / b.h, w1 = (pw * (y1 - top)) / b.h;
-          const x = cx - w1 / 2, w = w1, hh = y1 - y0;
-          const cmds = i === 0 ? [['M', w / 2, 0], ['L', w, hh], ['L', 0, hh], ['Z']] : [['M', (w - w0) / 2, 0], ['L', (w + w0) / 2, 0], ['L', w, hh], ['L', 0, hh], ['Z']];
-          out.push(shp('custom', x, y0, w, hh, acc(i), ['Vision', 'Strategy', 'Programs', 'Operations'][i], { path: { paths: [{ w, h: hh, cmds, fill: 'norm', stroke: true }] } }));
-        }
-        void base;
-        break;
-      }
-      case 'venn': {
-        const r = Math.min(b.w, b.h) * 0.3;
-        [[-0.55, -0.35], [0.55, -0.35], [0, 0.55]].forEach(([dx, dy], i) => out.push(shp('ellipse', cx + dx * r - r, cy + dy * r - r, r * 2, r * 2, { t: 'solid', c: ['accent1', 'accent2', 'accent3'][i], a: 0.55 }, ['People', 'Process', 'Tools'][i])));
-        break;
-      }
-      case 'target': {
-        const r = Math.min(b.w, b.h) * 0.46;
-        [1, 0.68, 0.36].forEach((k, i) => out.push(shp('ellipse', cx - r * k, cy - r * k, r * k * 2, r * k * 2, acc(i), '', { tx: undefined })));
-        ['Awareness', 'Interest', 'Decision'].forEach((t, i) => out.push(shp('rect', cx + r * 1.05, cy - r + i * r * 0.5 + r * 0.25, b.w * 0.2, r * 0.3, { t: 'none' }, t, { type: 'text', line: { t: 'none' } })));
-        out.forEach((s) => { if (s.tx === undefined) delete s.tx; });
-        break;
-      }
-      default: break;
-    }
-    return out;
-  }
+  A.waSet = (o) => E.commit('LettersArt', () => { for (const s of E.selected()) if (s.type === 'wordart') Object.assign(s.wa, o); });
+  A.waToggle = (k) => E.commit('LettersArt', () => { for (const s of E.selected()) if (s.type === 'wordart') s.wa[k] = !s.wa[k]; });
   A.createPhotoAlbum = async function (pics, layout, frame, caps) {
     const pres = L.pres;
     const did = (pres.slides[E.idx] || pres.slides[0] || {}).design || Object.keys(pres.designs)[0];
@@ -2029,7 +1975,14 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     total.tx.ps = [T.para('About 26 weeks from signed lease to opening day', { algn: 'ctr' }, { sz: 18 })];
     s.shapes.push(total);
     s.trans = { type: 'fade', spd: 'med', click: true, after: null };
-    /* 6 */
+    /* 6: a SmartArt diagram (js/diagram.js) */
+    s = add('text');
+    T.setPlain(ph(s, 'title').tx, 'How we choose a city');
+    const fn = L.diagram.make(pres, s, ph(s, 'body'), 'funnel', ['40 markets screened', '12 visited', '5 shortlisted', '4 chosen'], { style: 'subtle' });
+    s.anims = [{ id: L.uid('a'), sid: fn.id, cls: 'entr', eff: 'fade', start: 'click', dur: 500, delay: 0, by: 'all' }];
+    s.trans = { type: 'fade', spd: 'med', click: true, after: null };
+    s.notes = 'Each city has to clear foot traffic, rent and a roastery-delivery radius before we visit.';
+    /* 7 */
     s = add('text');
     T.setPlain(ph(s, 'title').tx, 'What we need from the board');
     const b6 = ph(s, 'body');
@@ -2044,9 +1997,9 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     s.shapes.push(call);
     s.anims = [{ id: L.uid('a'), sid: b6.id, cls: 'entr', eff: 'flyIn', dir: 'l', start: 'click', dur: 500, delay: 0, by: 'para' }, { id: L.uid('a'), sid: call.id, cls: 'entr', eff: 'zoom', start: 'after', dur: 500, delay: 250, by: 'all' }, { id: L.uid('a'), sid: call.id, cls: 'emph', eff: 'teeter', start: 'after', dur: 1000, delay: 0, by: 'all' }];
     s.trans = { type: 'push', dir: 'l', spd: 'med', click: true, after: null };
-    /* 7 */
+    /* 8 */
     s = add('blank');
-    const wa = { id: L.uid('s'), type: 'wordart', name: 'WordArt 1', x: pres.W * 0.15, y: pres.H * 0.3, w: pres.W * 0.7, h: pres.H * 0.32, rot: 0, wa: Object.assign(L.clone(L.dlg.WA_STYLES[4]), { text: 'Thank you', font: 'Arial Black', b: true, warp: 'textArchUp', style: 4 }) };
+    const wa = { id: L.uid('s'), type: 'wordart', name: 'LettersArt 1', x: pres.W * 0.15, y: pres.H * 0.3, w: pres.W * 0.7, h: pres.H * 0.32, rot: 0, wa: Object.assign(L.clone(L.dlg.WA_STYLES[4]), { text: 'Thank you', font: 'Arial Black', b: true, warp: 'textArchUp', style: 4 }) };
     s.shapes.push(wa);
     const q = M.newTextBox(pres, s, pres.W * 0.15, pres.H * 0.66, pres.W * 0.7, 36, true);
     q.tx.ps = [T.para('Questions? expansion@harborandpine.example', { algn: 'ctr' }, { sz: 20, color: 'tx1' })];
@@ -2098,6 +2051,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     if (window.VO) VO.setIcon(L.icons.app(32));
     buildMenus();
     buildToolbars();
+    L.ribbonUI.init();
     buildStatus();
     /* opened from the Start Center: a template, or blank (a new presentation, or to open a file into); else the sample */
     const launch = window.VO && VO.launch;

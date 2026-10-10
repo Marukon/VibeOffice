@@ -35,6 +35,7 @@
   A.loadOpts = () => { A.opts = L.deepMerge(L.clone(DEFAULT_OPTS), L.store.get('opts', {}) || {}); D.unit = A.opts.unit || 'in'; };
   A.saveOpts = () => { L.store.set('opts', A.opts); };
   A.applyOpts = () => {
+    document.body.classList.toggle('bluebg', !!A.opts.blueBg);
     D.unit = A.opts.unit || 'in';
     L.store.set('userName', A.opts.userName || 'Quire User');
     L.store.set('userInitials', A.opts.userInitials || '');
@@ -88,9 +89,7 @@
     ];
     const row = L.$('#menurow');
     A.menuBar = ui.menuBar(row, menus);
-    const q = h('input', { type: 'text', id: 'helpq', placeholder: 'Type a question for help', 'aria-label': 'Type a question for help' });
-    q.addEventListener('keydown', (e) => { if (e.key === 'Enter') { if (L.panes) { L.panes.helpQuery = q.value; L.panes.task.show('help'); } q.value = ''; E.refocus(); } e.stopPropagation(); });
-    row.appendChild(h('div', { class: 'helpbox' }, q, h('span', { class: 'dd-arrow' })));
+    row.appendChild(ui.searchBox());
   }
   function backgroundMenu() {
     return [
@@ -114,7 +113,7 @@
     return el;
   };
   A.listPanel = listPanel;
-  function tableGridPicker(r) {
+  function tableGridPicker(r, more) {
     ui.openMenu([{
       custom: (close) => {
         const box = h('div', { class: 'tbl-grid-pick' });
@@ -136,9 +135,9 @@
         box.append(cells, lbl);
         return box;
       },
-    }], r, { cls: 'grid-menu' });
+    }, ...(more || [])], r, { cls: 'grid-menu' });
   }
-  function columnsPicker(r) {
+  function columnsPicker(r, more) {
     ui.openMenu([{
       custom: (close) => {
         const box = h('div', { class: 'tbl-grid-pick' });
@@ -153,7 +152,7 @@
         box.append(cells, lbl);
         return box;
       },
-    }], r, { cls: 'grid-menu' });
+    }, ...(more || [])], r, { cls: 'grid-menu' });
   }
   A.setColumns = (n) => E.edit('Columns', () => { const s = A.curSect(); D.touchKey(s.holder, s.key); s.sect.cols = Object.assign({}, s.sect.cols, { n, eq: true, w: [] }); return E.sel; });
   /** the section object governing the caret (holder/key let undo snapshot it) */
@@ -250,18 +249,22 @@
       '-', { label: '&More AutoShapes...', icon: 'clipart', run: () => L.panes && L.panes.task.show('clipart') },
     ], { left: r.left, bottom: r.bottom }, { selectFirst: !at });
   };
-  function buildToolbars() {
-    const host = L.$('#toolbars');
-    const stState = () => (E.sel ? styleState() : '');
-    const styleCombo = ui.combo({
+  /* the toolbars' boxes and menus, also used by the ribbon (js/ribbon.js): each call makes a new box */
+  A.menus = { tableGrid: (r, more) => tableGridPicker(r, more), columns: (r, more) => columnsPicker(r, more), lineSpacing: (r) => lineSpacingMenu(r), borders: (r, b) => bordersDD(r, b), highlight: (r, b) => highlightDD(r, b), fontColor: (r, b) => fontColorDD(r, b) };
+  A.parts = {
+    style: (o) => ui.combo(Object.assign({
       id: 'tb-style', width: 118, tip: 'Style', listCls: 'styles',
       options: () => A.styleOptions().map((s) => s.label),
       preview: (v) => { const s = A.styleOptions().find((x) => x.label === v); return s ? s.css : ''; },
-      value: stState, onChange: (v) => A.applyStyleByName(v),
-    });
-    const fontCombo = ui.combo({ id: 'tb-font', width: 136, tip: 'Font', options: () => A.fontOptions(), preview: (v) => `font-family:${L.fontStack(v)};font-size:13px`, note: L.fontNote, listCls: 'fonts', value: () => { const v = E.uniformRun('font'); return v || ''; }, onChange: (v) => A.setFont(v) });
-    const sizeCombo = ui.combo({ id: 'tb-size', width: 40, tip: 'Font Size', options: () => L.SIZE_LIST, value: () => { const v = E.uniformRun('sz'); return v ? String(L.round(v, 1)) : ''; }, onChange: (v) => A.setFontSize(parseFloat(v)) });
-    const zoomCombo = ui.combo({ id: 'tb-zoom', width: 74, tip: 'Zoom', options: () => ['500%', '200%', '150%', '100%', '75%', '50%', '25%', '10%', 'Page Width', 'Text Width', 'Whole Page', 'Two Pages'], value: () => Math.round(LY.zoom * 100) + '%', onChange: (v) => A.zoomTo(v) });
+      value: () => (E.sel ? styleState() : ''), onChange: (v) => A.applyStyleByName(v),
+    }, o)),
+    font: (o) => ui.combo(Object.assign({ id: 'tb-font', width: 136, tip: 'Font', options: () => A.fontOptions(), preview: (v) => `font-family:${L.fontStack(v)};font-size:13px`, note: L.fontNote, listCls: 'fonts', value: () => { const v = E.uniformRun('font'); return v || ''; }, onChange: (v) => A.setFont(v) }, o)),
+    size: (o) => ui.combo(Object.assign({ id: 'tb-size', width: 40, tip: 'Font Size', options: () => L.SIZE_LIST, value: () => { const v = E.uniformRun('sz'); return v ? String(L.round(v, 1)) : ''; }, onChange: (v) => A.setFontSize(parseFloat(v)) }, o)),
+    zoom: (o) => ui.combo(Object.assign({ id: 'tb-zoom', width: 74, tip: 'Zoom', options: () => ['500%', '200%', '150%', '100%', '75%', '50%', '25%', '10%', 'Page Width', 'Text Width', 'Whole Page', 'Two Pages'], value: () => Math.round(LY.zoom * 100) + '%', onChange: (v) => A.zoomTo(v) }, o)),
+  };
+  function buildToolbars() {
+    const host = L.$('#toolbars');
+    const styleCombo = A.parts.style(), fontCombo = A.parts.font(), sizeCombo = A.parts.size(), zoomCombo = A.parts.zoom();
     A.toolbarsEl = {
       standard: ui.toolbar('standard', 'Standard', ['new', 'open', 'save', 'permission', 'sendMail', 'print', 'printPreview', 'spelling', 'research', '|', 'cut', 'copy', 'paste', 'painter', '|',
         ui.tbSplit('undo', (r) => A.historyMenu(r, 'undo')), ui.tbSplit('redo', (r) => A.historyMenu(r, 'redo')), '|', 'hyperlink', ui.tbButton('tb_tables', { icon: 'tablesBorders' }),
@@ -283,7 +286,7 @@
         'olFirstLine', 'olFormatting', '|', 'updateTOC', 'gotoTOC']),
       headerFooter: ui.toolbar('headerFooter', 'Header and Footer', [ui.tbDrop('Insert AutoText', null, (r) => ui.openMenu(L.autocorrect ? L.autocorrect.hfAutoText() : [], r), 'Insert AutoText'), '|', 'hfPageNum', 'hfNumPages', 'hfFormatPageNum', 'hfDate', 'hfTime', '|', 'pageSetup', 'hfShowText', 'hfLinkPrev', '|', 'hfSwitch', 'hfPrev', 'hfNext', '|', ui.tbButton('hfClose', { label: 'Close' })]),
       mailMerge: ui.toolbar('mailMerge', 'Mail Merge', ['mmMainDoc', 'mmOpenSource', 'mmRecipients', '|', 'mmAddress', 'mmGreeting', 'mmInsertField', '|', 'mmViewData', 'mmFirst', 'mmPrev', ui.combo({ id: 'tb-mmrec', width: 34, tip: 'Go to Record', options: () => [], value: () => String(L.mailmerge ? L.mailmerge.rec + 1 : 1), onChange: (v) => L.mailmerge && L.mailmerge.go(parseInt(v, 10) - 1) }), 'mmNext', 'mmLast', '|', 'mmMergeNew', 'mmMergePrint']),
-      wordart: ui.toolbar('wordart', 'WordArt', ['insertWordArt', ui.tbButton('wordartEdit', { label: 'Edit Text...' }), 'wordartGallery', 'formatObject', ui.tbDrop('', 'waShape', (r) => ui.openMenu(L.drawing.WARPS.map(([k, n]) => ({ label: n, run: () => L.drawing.modifySelected('WordArt Shape', (it) => { it.warp = k; }) })), r), 'WordArt Shape'), ui.tbDrop('', 'textWrap', (r) => A.wrapMenu(r), 'Text Wrapping')]),
+      wordart: ui.toolbar('wordart', 'LettersArt', ['insertWordArt', ui.tbButton('wordartEdit', { label: 'Edit Text...' }), 'wordartGallery', 'formatObject', ui.tbDrop('', 'waShape', (r) => ui.openMenu(L.drawing.WARPS.map(([k, n]) => ({ label: n, run: () => L.drawing.modifySelected('LettersArt Shape', (it) => { it.warp = k; }) })), r), 'LettersArt Shape'), ui.tbDrop('', 'textWrap', (r) => A.wrapMenu(r), 'Text Wrapping')]),
     };
     const row1 = h('div', { class: 'tb-row' }, A.toolbarsEl.standard);
     const row2 = h('div', { class: 'tb-row' }, A.toolbarsEl.formatting);
@@ -574,6 +577,13 @@
     if (id === 'wordart') return !!(E.objSel && E.objSel.it && E.objSel.it.wordart);
     return false;
   }
+  /** what is selected, for the ribbon's contextual tabs: 'table', 'picture', 'shape', 'headerFooter', 'outlining' */
+  A.inContext = (k) => {
+    const it = E.objSel && E.objSel.it;
+    if (k === 'table') return !!(L.tables && L.tables.inTable());
+    if (k === 'shape') return !!(it && (it.t === 'shape' || it.t === 'group' || it.t === 'text' || it.tb || it.wordart));
+    return ctxToolbar(k);
+  };
   A.toggleToolbar = (id) => { const v = A.opts.toolbars[id]; A.opts.toolbars[id] = A.tbShown(id) ? (v === 'auto' || v === true ? false : false) : true; if (A.opts.toolbars[id] === false && ['reviewing', 'picture', 'outlining', 'headerFooter', 'wordart'].includes(id) && v === true) A.opts.toolbars[id] = 'auto'; A.saveOpts(); A.updateToolbars(); };
   A.updateToolbars = function () {
     if (!A.toolbarsEl) return;
@@ -1237,6 +1247,7 @@
     if (window.VO && L.icons.app) VO.setIcon(L.icons.app(32));
     buildMenus();
     buildToolbars();
+    L.ribbonUI.init();
     buildStatus();
     LY.mount(L.$('#scroller'));
     E.init();

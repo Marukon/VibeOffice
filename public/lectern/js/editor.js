@@ -128,6 +128,7 @@
     el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up);
   }
 
+  L.onLook(() => { if (E.rulerH) E.drawRulers(); });   /* the canvas follows the look */
   E.drawRulers = function () {
     const show = !!(L.app && L.app.opts.ruler) && E.view !== 'sorter';
     E.rulerH.hidden = E.rulerV.hidden = !show;
@@ -142,11 +143,11 @@
       c.style.width = size + 'px'; c.style.height = '18px';
       const g = c.getContext('2d');
       g.scale(dpr, dpr);
-      g.fillStyle = '#fff'; g.fillRect(0, 0, size, 18);
+      g.fillStyle = L.lookColor('ruler', '#fff'); g.fillRect(0, 0, size, 18);
       const off = (horiz ? E.ox - E.scroller.scrollLeft : E.oy - E.scroller.scrollTop);
-      g.fillStyle = '#c5d6f3';
+      g.fillStyle = L.lookColor('ruler-off-2', '#c5d6f3');
       g.fillRect(0, 0, off, 18); g.fillRect(off + len * s, 0, size, 18);
-      g.strokeStyle = '#4b5d7e'; g.fillStyle = '#334'; g.font = '9px Tahoma, Verdana, sans-serif'; g.textAlign = 'center';
+      g.strokeStyle = L.lookColor('ruler-tick-2', '#4b5d7e'); g.fillStyle = L.lookColor('ruler-ink-2', '#334'); g.font = '9px Tahoma, Verdana, sans-serif'; g.textAlign = 'center';
       const mid = len / 2;
       for (let pt = 0; pt <= len + 0.1; pt += 9) {
         const x = Math.round(off + pt * s) + 0.5;
@@ -606,7 +607,7 @@
         const ob = { x: sh.x, y: sh.y, w: sh.w, h: sh.h };
         sh.x = L.round(ncx - w / 2, 3); sh.y = L.round(ncy - hh / 2, 3); sh.w = L.round(w, 3); sh.h = L.round(hh, 3);
         if (sh.type !== 'table' && sh.type !== 'group') { sh.flipH = flipX ? !orig.flipH : !!orig.flipH; sh.flipV = flipY ? !orig.flipV : !!orig.flipV; }
-        if (sh.type === 'group') M.scaleGroup(sh, ob, sh);
+        if (sh.type === 'group') { if (sh.sa) L.diagram.relayout(sh); else M.scaleGroup(sh, ob, sh); }
         if (sh.type === 'table') E.scaleTable(sh, orig);
         const sx = sh.w / orig.w, sy = sh.h / orig.h;
         for (const o of others) {
@@ -615,7 +616,7 @@
           s2.w = Math.max(1, o2.w * sx); s2.h = Math.max(1, o2.h * sy);
           s2.x = hd.includes('w') ? o2.x + o2.w - s2.w : o2.x;
           s2.y = hd.includes('n') ? o2.y + o2.h - s2.h : o2.y;
-          if (s2.type === 'group') M.scaleGroup(s2, ob2, s2);
+          if (s2.type === 'group') { if (s2.sa) L.diagram.relayout(s2); else M.scaleGroup(s2, ob2, s2); }
           if (s2.type === 'table') E.scaleTable(s2, o2);
         }
         live();
