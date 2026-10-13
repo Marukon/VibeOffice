@@ -1332,6 +1332,7 @@
     r.style.left = Math.max(10, (sw - w * z) / 2) + 'px';
   };
   LY.setZoom = function (z) {
+    if (L.ui && L.ui.dragCancel) L.ui.dragCancel();   /* what a drag measured is at the old zoom */
     LY.zoom = L.clamp(z, 0.1, 5);
     if (LY.view === 'web') return LY.render();
     LY.fitSizer();
@@ -1413,7 +1414,9 @@
   };
   /** choose the fragment for (p,o): prefer one where from <= o < to, else the one ending at o */
   LY.fragFor = function (p, o, scope) {
-    const fr = LY.frags(p.id, scope);
+    let fr = LY.frags(p.id, scope);
+    /* a header or footer is drawn on every page: while one is edited, the page it is edited on */
+    if (!scope && fr.length > 1 && LY.hfEdit) { const pg = LY.pages[LY.hfEdit.page], mine = pg ? fr.filter((f) => pg.el.contains(f)) : []; if (mine.length) fr = mine; }
     if (!fr.length) return null;
     let best = null;
     for (const f of fr) {

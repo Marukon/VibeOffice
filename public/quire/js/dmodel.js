@@ -640,7 +640,8 @@
     const tbStories = [];
     for (const st of allStories) {
       D.walk(st, (b) => {
-        if (b.t === 'p') for (const it of b.runs) if ((it.t === 'shape' || it.t === 'group') && it.tb) {
+        /* a shape's text box, or each of a group's (a diagram's shapes): a group has none of its own */
+        if (b.t === 'p') for (const it of b.runs) if ((it.t === 'shape' && it.tb) || it.t === 'group') {
           for (const tb of it.t === 'group' ? D.groupTextboxes(it) : [it.tb]) {
             tb.kind = 'tb';
             // Runtime back-reference, rebuilt on indexing. Keep it out of JSON
@@ -898,6 +899,9 @@
   D.tx = function (label, fn, opts) {
     opts = opts || {};
     if (H.cur) { H.depth++; try { return fn(); } finally { H.depth--; } }
+    /* an edit in the middle of a drag (a moved shape, a ruler marker…) comes before the drag's own step: the drag ends
+       first, as if Esc. A text selection being made (Quire's press watcher) is no edit of its own and goes on. */
+    if (L.ui && L.ui.dragging && L.ui.dragging() && !(L.ed && L.ed.pressing && L.ed.pressing())) L.ui.dragCancel();
     const t = { label, objs: new Map(), keys: new Map(), paras: new Set(), tbls: new Set(), struct: false, global: false, full: null, selBefore: D.getSel ? D.getSel() : null, merge: opts.merge || null, time: Date.now() };
     H.cur = t;
     let res, err = null;

@@ -79,7 +79,7 @@ One copy of everything the three apps share; a change here is a change in every 
 | `looks.css` | the looks: every chrome colour, font and shadow as a named setting, one block per look (see Looks) | all, and the Start Center |
 | `ui.css` | the chrome: layout of menus, toolbars, task panes, dialogs, controls, status bar, from the look's settings; each app's CSS follows and wins | all |
 | `core.js` | DOM helpers, colours, units, events, storage, file saving (`L.saveFile`, which tells `vo-saved`), PDF writer, media store, fonts and substitutes, symbol bullets, platform (`L.isMac`, `L.isMobile`: iOS or Android) | all |
-| `ui.js` | commands, menus, toolbars, combo boxes, dialogs, colour menus, password and prompt boxes, brushes (`ui.brush`, below); the events `vo-command`, `vo-busy`, `vo-message` (what the user does, followed by the assistant) | all |
+| `ui.js` | commands, menus, toolbars, combo boxes, dialogs, colour menus, password and prompt boxes, drags and brushes (`ui.drag`, `ui.brush`, below); the events `vo-command`, `vo-busy`, `vo-message` (what the user does, followed by the assistant) | all |
 | `search.js` | Search commands, the box at the top right of every app (see Search commands) | all |
 | `ribbon.js` | the ribbon of the Paper 2016 look, drawn from each app's `js/ribbon.js` (see The ribbon) | all |
 | `icons.js` | the 16×16 icon sets (common, document, spreadsheet), `L.icons.add`, `L.icons.kit` | all |
@@ -101,7 +101,34 @@ What each app provides:
 - in its `app.js`, at load: `L.icons.app` (its icon), `ui.hooks = { beforeExec, refocus, commitEdit }` (its editor around commands, toolbar boxes and dialogs); Lectern also `ui.schemeColors` / `ui.currentDesign` (theme colours in colour menus) and PowerPoint's `L.SIZE_LIST`.
 - a spelling UI sets `L.spell.refreshSoon` if it draws underlines (Quire).
 
-**Brushes.** The Format Painter of each app, and Quire's highlighter, is a `ui.brush({ el, pick, apply, hint, status })`: a click on its button arms it for one use or puts it down, a double-click keeps it on, Esc puts it down, and one brush is on at a time. Arming it changes nothing else: the selection and the text being edited stay. It paints once, when the mouse is let go, never while a selection is still being dragged out: the app calls `brush.release()` then (Quire on the editor's `sel-done`, Ledger at the end of a cell drag, Lectern at pointer up in the slide editor) and its `apply` paints what was marked. What the apps paint follows Office and LibreOffice's Clone Formatting (Writer, Calc, Impress): a click inside a word paints the word; Ledger tiles the source range over a larger target; Lectern carries the text's formatting from text being edited and the whole object's otherwise, paints the text dragged over in any box and the whole object when the press is beside its text, and a click beside the objects puts even a kept-on painter down. The painted formatting replaces the target's own; links, fields and revision marks stay (`tests/painter.test.mjs`).
+**Drags.** Every press-and-drag of the apps (moving a shape, a ruler marker, a cell range, drawing a shape, a
+splitter) is a `ui.drag(e, { move, up, cancel, threshold, capture })` from `ui.js`: one at a time; `move` only after
+4 px, so a click that never moved changes nothing; `up` on the release; `cancel(d, why)` instead, with nothing
+committed, on Esc (which also ends the tool and puts a brush down), Ctrl+Z or Ctrl+Y (the drag is what gets undone), a
+second button (its menu doesn't open), a release the page never saw, a lost capture, the window losing focus or
+`ui.dragCancel()` (a tool, view, sheet, slide or zoom switch); a tool stays armed after the other cancels. Other keys
+go nowhere while the button is held (the modifiers still shape the drag), and each app's history push (Quire `D.tx`,
+Ledger `O.tx`, Lectern `L.hist.push`) cancels a live drag before it records, so no edit comes between a drag's start
+and its step. The cursor of the press stays while the pointer moves (`cursor: false` holds none). The browser's own
+text-selection drags stay its own; Quire watches its text selections with a `ui.drag` that holds nothing
+(`{ capture: false, cursor: false }`), so a selection let go in another window or cut short by Esc or a second button
+ends without `'sel-done'` (`tests/ui/drag.test.mjs`, `tests/ui/gestures.test.mjs`; todos/UI_MOUSE_LOGIC_IMPROVE.md).
+
+**Selections.** Each app has one setter for its selection, and it ends the other kinds: Quire's `E.setSel` ends an
+object selection (`E.selectObject` is the one way into one, `E.clearObjSel` the one way out), Ledger's `G.select`,
+`G.selectRange` and `G.selectAll` end a drawing object's, Lectern's `E.select` ends text editing and a range of table
+cells. Lectern's `E.endInteraction()` ends what is under way on the slide (a drag, a freeform, a cell range) on a tool
+switch, another slide and undo.
+
+**Focus.** The keyboard stays with the document unless the user picks a control of its own. A press on chrome with
+none (a toolbar's, the ribbon's or a pane's background, a grip, the status bar, a tab strip), on a menu, the menu bar
+or a button outside a dialog keeps it where it is (one `mousedown` listener in `ui.js`). A dialog closing gives it back
+to what had it, editable text with the selection it had (Lectern's speaker notes), except the document's own text
+(`ui.hooks.ownsText(el)`: Quire's page, Lectern's slide), which the app's `ui.hooks.refocus()` gives back with its
+model selection (Quire `E.refocus`, Lectern the text at `L.te.lastSel`, the slide or the Slides pane); a menu command
+that leaves it nowhere calls `refocus()` too (`tests/ui/focus.test.mjs`).
+
+**Brushes.** The Format Painter of each app, and Quire's highlighter, is a `ui.brush({ el, pick, apply, hint, status })`: a click on its button arms it for one use or puts it down, a double-click keeps it on, Esc puts it down, and one brush is on at a time. Arming it changes nothing else: the selection and the text being edited stay. It paints once, when the mouse is let go, never while a selection is still being dragged out: the app calls `brush.release()` then (Quire on the editor's `sel-done`, Ledger at the end of a cell drag, Lectern at pointer up in the slide editor) and its `apply` paints what was marked. What the apps paint follows Office and LibreOffice's Clone Formatting (Writer, Calc, Impress): a click inside a word paints the word; Ledger tiles the source range over a larger target; Lectern carries the text's formatting from text being edited and the whole object's otherwise, paints the text dragged over in any box and the whole object when the press is beside its text, and a click beside the objects puts even a kept-on painter down. The painted formatting replaces the target's own; links, fields and revision marks stay (`tests/ui/painter.test.mjs`).
 
 Version: `VO.VERSION` in `suite.js` is the one version string (`L.VERSION` reads it); it says `dev` in the repository, the desktop app's build sets it, and the published copy stamps it. The format is `v<yyyy>.<mm>.<dd>-<6 hex>`, the date (UTC) and commit of the tree (`tools/current-tree-version.sh`, e.g. `v2026.10.11-d2134d`; copies before said `2026.10.8f8494`). `VO.compareVersions(a, b)` compares two by their dates alone (negative, 0, positive; `dev` is newer than any dated version, an old-format one counts as day 0 of its month). The Start Center (under its privacy note, and in About) and each app's Help ▸ About show it. `public/updater/current.json` names, per policy and platform, the oldest version that needs no Update button or dialog, and `public/updater/whatsnew.json` what each version brought, for the Update dialog (docs/desktop.md, Versions and updates).
 
