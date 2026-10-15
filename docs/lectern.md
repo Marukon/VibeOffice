@@ -1,4 +1,4 @@
-# Lectern 2003 — Web Edition
+# Lectern — Web Edition
 
 A presentation editor modeled on PowerPoint 2003, written in plain HTML and vanilla JavaScript with no frameworks and no build step. It opens and saves real `.pptx` files. In the suite's Paper 2016 look (Themes on the Start Center, or Tools ▸ Options ▸ General ▸ Theme) a ribbon with PowerPoint 2016's tabs (Home, Insert, Design, Transitions, Animations, Slide Show, Review, View and the tool tabs) takes the place of the menus and toolbars.
 
@@ -47,6 +47,10 @@ File ▸ Open, drag a file onto the window, or *Open a presentation* in the Gett
 
 Strict inputs save as standard Transitional OOXML (recorded, not shown). Same-format
 saves retain the macro, template or slideshow variant and any opening password.
+
+East Asian text is drawn with the run's East Asian font (`a:ea`, or the theme's for the presentation's
+language), and a run's font change keeps its `a:ea`. A new presentation follows the UI's language: its
+text language and, in Japanese, Korean and Chinese, the theme's East Asian font ([i18n.md](i18n.md)).
 
 **Password-protected presentations** ask for the password, as PowerPoint does, and say so when it is wrong. Decryption happens in the browser (Agile encryption from Office 2010 on, Standard encryption from Office 2007). A presentation opened with a password is saved with the same password; Tools ▸ Options ▸ Security sets, changes or removes it (AES-256 with SHA-512, the scheme PowerPoint 2013 and later use).
 

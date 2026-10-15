@@ -31,7 +31,7 @@
     LY.root.spellcheck = false;
     LY.root.setAttribute('role', 'textbox');
     LY.root.setAttribute('aria-multiline', 'true');
-    LY.root.setAttribute('aria-label', 'Document');
+    LY.root.setAttribute('aria-label', L.t('Document'));
     LY.sizer.appendChild(LY.root);
     scroller.appendChild(LY.sizer);
   };
@@ -119,14 +119,16 @@
       }
       return v;
     };
-    /** a line: its box (top, bottom) and where Word's text ends in it (text) */
-    const add = (o, rect, m) => {
+    /** a line: its box (top, bottom), where Word's text ends in it (text) and the foot of its lowest picture (obj) */
+    const add = (o, rect, m, obj) => {
       const lh = m && m.lh;
-      const top = (rect.top - frameTop) / scale, bottom = (rect.bottom - frameTop) / scale;
+      let top = (rect.top - frameTop) / scale, bottom = (rect.bottom - frameTop) / scale;
       const half = lh != null ? Math.max(0, (lh - rect.height / scale) / 2) : 0, text = m ? (top + bottom) / 2 + m.nat / 2 : bottom;
+      /* a run of line height 0 (a superscript, blanks: portions.js) is a point in the middle of its text, as in CSS */
+      if (lh === 0) top = bottom = (top + bottom) / 2;
       const isNew = !prev || forceNew || (rect.left < prev.left - 1 && rect.top > prev.top + 0.5) || rect.top >= prev.bottom - 0.5 && rect.left <= prev.left;
-      if (isNew) lines.push({ o, top: top - half, bottom: bottom + half, text });
-      else { const ln = lines[lines.length - 1]; ln.bottom = Math.max(ln.bottom, bottom + half); ln.top = Math.min(ln.top, top - half); ln.text = Math.max(ln.text, text); }
+      if (isNew) lines.push({ o, top: top - half, bottom: bottom + half, text, obj: obj ? bottom : null });
+      else { const ln = lines[lines.length - 1]; ln.bottom = Math.max(ln.bottom, bottom + half); ln.top = Math.min(ln.top, top - half); ln.text = Math.max(ln.text, text); if (obj) ln.obj = Math.max(ln.obj ?? bottom, bottom); }
       prev = rect;
       forceNew = false;
     };
@@ -138,6 +140,12 @@
       if (node.classList.contains('lbl') || node.classList.contains('lbt') || node.classList.contains('lsp')) {
         const r = node.getBoundingClientRect();
         if (r.width || r.height) add(+frag.dataset.from, r, null);
+        continue;
+      }
+      /* the empty span that gives a line its height where nothing else does (portions.js): a line of its own */
+      if (node.classList.contains('ms')) {
+        const r = node.getBoundingClientRect();
+        if (r.height) add(+node.dataset.z, r, metricsOf(node));
         continue;
       }
       if (node.dataset.o == null) continue;
@@ -173,10 +181,18 @@
         }
       } else {
         const r = node.getBoundingClientRect();
-        if (r.width || r.height) add(o0, r, null);
+        if (r.width || r.height) add(o0, r, null, /\b(img|shp|obj-missing|mml)\b/.test(node.className));
       }
     }
     return lines;
+  };
+  /** how many lines a fragment has (LY.lines), kept until the fragment is drawn again: for the status bar's line number
+      and Word Count, which can't divide its height by a line height now that lines differ (portions.js) */
+  const lineCounts = new WeakMap();
+  LY.lineCount = function (frag) {
+    let n = lineCounts.get(frag);
+    if (n == null) { n = Math.max(1, LY.lines(frag, 0, 1).length); lineCounts.set(frag, n); }
+    return n;
   };
   /** remove a laid-out fragment together with the page-level floats it anchored */
   const dropFrag = (f) => { if (f._floats) { for (const w of f._floats) w.remove(); f._floats = null; } f.remove(); };
@@ -286,7 +302,8 @@
       const atFoot = !ctx.inCell && frame.kind === 'col' && !lsx.atLeast && !lsx.exact;
       const onGrid = atFoot && ctx.grid && !pPr.noSnap;
       const multX = atFoot && !onGrid && lsx.mult > 1 ? lsx.mult : 1;
-      const slackOf = (ln) => (!ln ? 0 : onGrid ? (ln.text != null ? Math.max(0, ln.bottom - ln.text) : 0) : multX > 1 ? (ln.bottom - ln.top) * (1 - 1 / multX) : 0);
+      /* (never into a picture: only the space below the line's lowest picture may run into the margin) */
+      const slackOf = (ln) => (!ln ? 0 : onGrid ? (ln.text != null ? Math.max(0, ln.bottom - ln.text) : 0) : multX > 1 ? Math.min((ln.bottom - ln.top) * (1 - 1 / multX), ln.obj != null ? Math.max(0, ln.bottom - ln.obj) : Infinity) : 0);
       /* (an empty paragraph has no measured lines: its text bottom is the box minus the space after) */
       let textBottom;
       if (lines.length) textBottom = lines[lines.length - 1].bottom - slackOf(lines[lines.length - 1]);
@@ -506,7 +523,7 @@
   }
 
   /* ================= tables ================= */
-  function tableShell(t, ctx) {
+  function tableShell(t, ctx, room) {
     const d = ctx.doc;
     const { tp, sp } = R.tblProps(d, t);
     const tbl = el('table', 'tbl');
@@ -520,8 +537,11 @@
     tbl.style.width = px(total) + 'px';
     const compat = (d.settings.compat || 11) < 15;
     const ind = (tp.ind || 0) - (compat ? tp.cellMar.l || 0 : 0);
-    if (tp.jc === 'center') tbl.style.marginLeft = tbl.style.marginRight = 'auto';
-    else if (tp.jc === 'right' || tp.jc === 'end') tbl.style.marginLeft = 'auto';
+    /* a centred or right-aligned table wider than its column (room, px) overhangs the margins as in Word: both evenly,
+       or the left one (auto margins would be 0, the whole overhang on the right; issue 20) */
+    const over = room ? px(total) - room : 0;
+    if (tp.jc === 'center') { if (over > 0) tbl.style.marginLeft = -over / 2 + 'px'; else tbl.style.marginLeft = tbl.style.marginRight = 'auto'; }
+    else if (tp.jc === 'right' || tp.jc === 'end') tbl.style.marginLeft = over > 0 ? -over + 'px' : 'auto';
     else if (ind) tbl.style.marginLeft = px(ind) + 'px';
     if (tp.shd) tbl.style.backgroundColor = R.shadeCSS(tp.shd);
     const tb = el('tbody');
@@ -640,7 +660,7 @@
    */
   function placeTable(frame, t, sub, ctx) {
     const scale = LY.scale();
-    const shell = tableShell(t, ctx);
+    const shell = tableShell(t, ctx, frame.width || frame.el.clientWidth);
     const map = R.tblMap(t);
     const startRow = sub ? sub.r : 0;
     let cellStates = sub ? sub.cells : null;
@@ -810,17 +830,6 @@
     const hctx = Object.assign({}, ctx, { story, dyn: (ty, fmt, instr) => LY.dynField(ty, fmt, page, instr), openCmts: null, page, hf: true, grid: 0 });
     LY.flow(fr, story.blocks, { bi: 0, sub: null }, story.blocks.length, hctx);
     fixAbsFrames(container);
-    return container.offsetHeight;
-  }
-  LY.dynField = function (ty, fmt, page, instr) {
-    if (!page) return '1';
-    if (ty === 'STYLEREF') return page.body && page.body.querySelector('.p') ? LY.styleRefOnPage(page, instr || '') : '';
-    const f = { Arabic: 'decimal', ROMAN: 'upperRoman', roman: 'lowerRoman', ALPHABETIC: 'upperLetter', alphabetic: 'lowerLetter', Ordinal: 'ordinal', CardText: 'cardinalText', OrdText: 'ordinalText' }[fmt];
-    if (ty === 'PAGE') return D.fmtNum(page.numVal, f || page.numFmt || 'decimal');
-    if (ty === 'NUMPAGES') return D.fmtNum(fieldCounts ? fieldCounts.total : 1, f || 'decimal');
-    if (ty === 'SECTIONPAGES') return D.fmtNum(fieldCounts && fieldCounts.sections[page.si] || 1, f || 'decimal');
-    if (ty === 'SECTION') return String(page.si + 1);
-    return '';
     /* a footer grows upwards from its bottom edge, so the paragraphs after a float's anchor moved it up: a float
        placed from its paragraph (or line) follows it */
     const z = LY.scale(), pgTop = page.el.getBoundingClientRect().top;
@@ -836,6 +845,17 @@
         w.style.top = pos.y + 'px';
       }
     }
+    return container.offsetHeight;
+  }
+  LY.dynField = function (ty, fmt, page, instr) {
+    if (!page) return '1';
+    if (ty === 'STYLEREF') return page.body && page.body.querySelector('.p') ? LY.styleRefOnPage(page, instr || '') : '';
+    const f = { Arabic: 'decimal', ROMAN: 'upperRoman', roman: 'lowerRoman', ALPHABETIC: 'upperLetter', alphabetic: 'lowerLetter', Ordinal: 'ordinal', CardText: 'cardinalText', OrdText: 'ordinalText' }[fmt];
+    if (ty === 'PAGE') return D.fmtNum(page.numVal, f || page.numFmt || 'decimal');
+    if (ty === 'NUMPAGES') return D.fmtNum(fieldCounts ? fieldCounts.total : 1, f || 'decimal');
+    if (ty === 'SECTIONPAGES') return D.fmtNum(fieldCounts && fieldCounts.sections[page.si] || 1, f || 'decimal');
+    if (ty === 'SECTION') return String(page.si + 1);
+    return '';
   };
   /**
    * STYLEREF in a header or footer: the first (\l: last) text on this page in the given paragraph or
@@ -1097,19 +1117,20 @@
       ctx.grid = dg && /^(lines|linesAndChars|snapToChars)$/.test(dg.type || '') && dg.linePitch > 0 ? px(dg.linePitch / 20) : 0;
       const res = LY.flow(fr, blocks, st, sec.to, ctx);
       st = res.st;
-      /* an empty paragraph that only carries the section break, pushed off a full page (or, Word 2013+, past a page
-         break), makes no page of its own when the next section starts on a new page anyway: it stays at the foot of
-         this one, into the margin if need be (the page count Word stores agrees) */
-      if ((res.stop === 'page' ? (d.settings && d.settings.compat) >= 15 : res.stop === 'full' && region.ci + 1 >= region.frames.length)
-        && !res.pbb && st.bi === sec.to - 1 && !st.sub && sec.endPara && !D.plen(sec.endPara) && startsPage(si)) {
+      /* an empty paragraph that only carries the section break, pushed off a full page or past a page break (unless it
+         has "page break before" of its own), makes no page of its own when the next section starts on a new page
+         anyway: it stays at the foot of this one, into the margin if need be (the page count Word stores agrees; issue 20) */
+      if ((res.stop === 'page' || (res.stop === 'full' && region.ci + 1 >= region.frames.length))
+        && !res.pbb && st.bi === sec.to - 1 && !st.sub && sec.endPara && !D.plen(sec.endPara) && startsPage(si)
+        && !(res.stop === 'page' && D.pProps(d, sec.endPara).pageBreakBefore)) {
         fr.limit = Infinity;
         const rest = LY.flow(fr, blocks, st, sec.to, ctx);
         if (rest.stop === 'done') { st = rest.st; res.stop = 'done'; }
       }
-      /* Word 2013+ (compat 15): a page (or last-column) break that ends the section's last paragraph keeps
-         the paragraph mark on its own page, so no empty page is made when the document ends or the next
-         section starts on a new page anyway (older modes carry the mark over to a new page) */
-      if ((d.settings && d.settings.compat) >= 15 && (res.stop === 'page' || (res.stop === 'column' && region.ci + 1 >= region.frames.length)) && !res.pbb && st.bi >= sec.to) {
+      /* Word 2010+ (compat 14): a page (or last-column) break that ends the section's last paragraph keeps the
+         paragraph mark on its own page, so no empty page is made when the document ends or the next section starts on
+         a new page anyway (older modes carry the mark over to a new page; Word's stored page counts agree, issue 20) */
+      if ((d.settings && d.settings.compat) >= 14 && (res.stop === 'page' || (res.stop === 'column' && region.ci + 1 >= region.frames.length)) && !res.pbb && st.bi >= sec.to) {
         const nt = si + 1 < sections.length ? (sections[si + 1].sect.type || 'nextPage') : null;
         if (!nt || (nt !== 'continuous' && nt !== 'nextColumn')) res.stop = 'done';
       }
