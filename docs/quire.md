@@ -14,6 +14,8 @@ feature. The proofing dictionaries are fetched at run time from `../common/dict/
 so the site is served rather than opened from disk (a `file://` page cannot fetch them; editing still
 works, but spelling and the thesaurus stay off). To run it locally, see [testing.md](testing.md).
 The metric-compatible fonts (see *Rendering notes*) are served with the site from `public/fonts/`.
+A hyperlink is never opened from the document: Ctrl+click and Open Hyperlink show its address to copy
+(docs/suite.md, Hyperlinks); `#bookmark` links go to the bookmark.
 
 ## Proofing tools (offline)
 
@@ -112,7 +114,7 @@ Licences for the word lists are in `public/common/dict/LICENSES.txt`.
 | Word Document `.docx` / `.docm` | yes | yes |
 | Strict Open XML `.docx` | yes | standard Transitional OOXML (recorded, not shown) |
 | Word Template `.dotx` / `.dotm` | yes | yes |
-| Web Page `.htm` / `.html` | yes | yes (single file, images inlined) |
+| Web Page `.htm` / `.html` | yes | yes (single file, images inlined, with its own security policy: no scripts) |
 | Rich Text Format `.rtf` | yes | yes |
 | Plain Text `.txt` | yes | yes |
 | Markdown `.md` / `.markdown` (GitHub flavour) | yes | yes |

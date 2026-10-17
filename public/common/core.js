@@ -1,15 +1,17 @@
 /* VibeOffice — core utilities, shared by Quire, Ledger and Lectern.
  * Shared namespace, DOM helpers, units, colors, events, file I/O, media store, PDF writer.
- * Every other script attaches itself to window.L. Each page names its app before loading this file:
- *   <script>window.L = { APP_ID: 'quire', APP_NAME: 'Quire', APP: 'Quire' };</script>
+ * Every other script attaches itself to window.L. Each page names its app on its <html> (no inline script:
+ * the pages' Content-Security-Policy):
+ *   <html lang="en" data-app="quire" data-app-name="Quire">
  * APP_ID keeps each app's saved settings apart (localStorage 'quire.…'); APP_NAME and APP appear in messages.
  */
 (function (root) {
   'use strict';
   const L = root.L || (root.L = {});
+  const named = root.document?.documentElement?.dataset || {};
   L.VERSION = root.VO?.VERSION || 'dev';   // one version for the suite: common/suite.js
-  L.APP_ID = L.APP_ID || 'vibeoffice';
-  L.APP_NAME = L.APP_NAME || 'VibeOffice';
+  L.APP_ID = L.APP_ID || named.app || 'vibeoffice';
+  L.APP_NAME = L.APP_NAME || named.appName || 'VibeOffice';
   L.APP = L.APP || L.APP_NAME;
 
   /* ---------- DOM ---------- */
@@ -524,6 +526,17 @@
       tip: generic ? t('{0} is not installed on this computer, so its text is shown in a default font. The document keeps the font name {0} and shows in that font on computers that have it.', name)
         : t('{0} is not installed on this computer, so its text is shown in {1}. The document keeps the font name {0} and shows in that font on computers that have it.', name, used),
     };
+  };
+  /** a string as a quoted CSS string (a font name in HTML we write), with the quotes, backslash, angle brackets
+   * and line breaks escaped: a document's font name can end neither the string, an attribute nor a <style>. */
+  L.cssString = (s) => `'${String(s).replace(/[\\'"<>\n\r\f]/g, (c) => '\\' + c.charCodeAt(0).toString(16) + ' ')}'`;
+  /** the Content-Security-Policy meta tag of a page we export (Save as Web Page). The file is opened from disk,
+   * away from the suite's own policy, so it carries one: pictures and fonts are inside it (data:), styles
+   * inline, nothing loads from anywhere, and no script runs but the page's own `script` (the text between its
+   * <script> tags, allowed by its SHA-256; common/sha.js), if it has one. */
+  L.exportCSP = function (script) {
+    const hash = script == null ? null : btoa(String.fromCharCode(...L.sha.sha256(new TextEncoder().encode(script))));
+    return `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; font-src data:; style-src 'unsafe-inline'; script-src ${hash ? `'sha256-${hash}'` : "'none'"}; base-uri 'none'; form-action 'none'">`;
   };
   /** @font-face rules for a standalone export (an HTML page): the stand-ins from public/fonts/ that
    * `markup` names, as data: URLs, with bold/italic faces only if the markup uses them. */

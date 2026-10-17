@@ -6,6 +6,7 @@ mod host;
 mod installation;
 #[cfg(windows)]
 mod installed;
+mod net;
 
 use tauri::{
     webview::{DownloadEvent, NewWindowResponse, PageLoadEvent},
@@ -13,30 +14,44 @@ use tauri::{
 };
 
 /// A window of the suite: the Start Center ("main") or an app (host_new_window). Every window gets the
-/// host script, title, link, drop and UI size handling.
+/// host script, title, link, drop and UI size handling, and the network rules (net.rs): on Windows and macOS
+/// it starts on about:blank and goes to its page once they are on (`net::guard`).
 pub fn open_window(app: &AppHandle, label: &str, url: WebviewUrl) -> tauri::Result<WebviewWindow> {
-    WebviewWindowBuilder::new(app, label, url)
+    #[cfg(any(windows, target_os = "macos"))]
+    let (url, page) = (
+        WebviewUrl::External(net::BLANK.parse().expect("about:blank")),
+        net::page_url(app, url),
+    );
+    let window = WebviewWindowBuilder::new(app, label, url)
         .title("VibeOffice")
         .inner_size(1280.0, 820.0)
         .min_inner_size(640.0, 480.0)
         .initialization_script(host::init_script())
         // The pages take dropped files themselves (Start Center, each app).
         .disable_drag_drop_handler()
-        // Links out of the app (the Start Center's GitHub button, hyperlinks in documents and
-        // slide shows) open in the default browser, not in this window or a bare popup.
-        .on_navigation(|url| {
-            if !host::is_external(url) {
-                return true;
+        // Links out of the app (the Start Center's GitHub button, the licences page's) open in the default
+        // browser if they are ones it may open (host::leave), never in this window or a bare popup. The
+        // suite's own windows come from VO.host.newWindow (host_new_window), with the network rules.
+        .on_navigation({
+            let (app, label) = (app.clone(), label.to_string());
+            move |url| {
+                if !host::is_external(url) {
+                    return true;
+                }
+                host::leave(&app, &label, url);
+                false
             }
-            let _ = host::open_external(url);
-            false
         })
-        .on_new_window(|url, _| {
-            if !host::is_external(&url) {
-                return NewWindowResponse::Allow;
+        .on_new_window({
+            let (app, label) = (app.clone(), label.to_string());
+            move |url, _| {
+                if host::is_external(&url) {
+                    host::leave(&app, &label, &url);
+                } else {
+                    eprintln!("not opened: a bare window for {url}");
+                }
+                NewWindowResponse::Deny
             }
-            let _ = host::open_external(&url);
-            NewWindowResponse::Deny
         })
         // Saving, for now: every save is a download into the Downloads folder (host::download_destination
         // decides what may be written where); the window is then told the name the file got.
@@ -62,23 +77,37 @@ pub fn open_window(app: &AppHandle, label: &str, url: WebviewUrl) -> tauri::Resu
             }
             _ => true,
         })
-        // The system title bar shows the page's title, as in the installed PWA.
+        // The system title bar shows the page's title, as in the installed PWA (not about:blank's, nor
+        // the network probe's).
         .on_document_title_changed(|window, title| {
+            #[cfg(any(windows, target_os = "macos"))]
+            if title == net::BLANK || net::probe::reported(&window, &title) {
+                return;
+            }
             let _ = window.set_title(&title);
         })
         // The UI size (Settings), as each page starts: WebKitGTK resets the zoom on the first load.
         .on_page_load(|window, payload| {
             if payload.event() == PageLoadEvent::Started {
+                window
+                    .state::<host::Host>()
+                    .page_started(window.label(), payload.url());
                 let scale = window.state::<host::Host>().ui_scale();
                 let _ = window.set_zoom(scale);
             }
             // The first start after installing: what the user chose in the installer
             #[cfg(windows)]
-            if payload.event() == PageLoadEvent::Finished && window.label() == "main" {
+            if payload.event() == PageLoadEvent::Finished
+                && window.label() == "main"
+                && matches!(payload.url().scheme(), "http" | "https")
+            {
                 installed::after_install(&window);
             }
         })
-        .build()
+        .build()?;
+    #[cfg(any(windows, target_os = "macos"))]
+    net::guard(&window, page)?;
+    Ok(window)
 }
 
 /// The Start Center's window has been made once (setup): until then, files that arrive wait for it.
@@ -215,8 +244,21 @@ fn main() {
         ])
         .setup(|app| {
             app.state::<host::Host>().load_settings(app.handle());
-            open_window(app.handle(), "main", WebviewUrl::default())?;
-            STARTED.store(true, std::sync::atomic::Ordering::SeqCst);
+            let start = {
+                let app = app.handle().clone();
+                move || {
+                    if let Err(e) = open_window(&app, "main", WebviewUrl::default()) {
+                        eprintln!("the Start Center: {e}");
+                        app.exit(1);
+                    }
+                    STARTED.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+            };
+            // macOS: once WebKit has compiled the network rules (without them, no window opens)
+            #[cfg(target_os = "macos")]
+            net::prepare(app.handle(), start);
+            #[cfg(not(target_os = "macos"))]
+            start();
             Ok(())
         })
         .build(tauri::generate_context!())

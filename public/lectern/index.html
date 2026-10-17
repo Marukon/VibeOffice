@@ -1,8 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-app="lectern" data-app-name="Lectern">
 <head>
 <meta charset="utf-8">
-<script>try{var d=document.documentElement,l=localStorage.getItem('vibeoffice.look')||'classic';d.dataset.look=l;d.dataset.layout=l==='paper2016'?'ribbon':'bars'}catch(e){}</script>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' data: blob: https://vibeoffice.work ipc: http://ipc.localhost; worker-src 'self'; manifest-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<script src="../common/look.js"></script>
 <script src="../common/lang.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lectern</title>
@@ -254,8 +255,8 @@
 .show .stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .show .layer { position: absolute; left: 0; top: 0; }
 .show .sl .shp.has-link, .show .sl span[data-link] { pointer-events: auto; cursor: pointer; }
-.show canvas.ink { position: absolute; left: 0; top: 0; z-index: 3; }
-.show.pen canvas.ink { cursor: crosshair; }
+.show canvas.ink { position: absolute; left: 0; top: 0; z-index: 3; pointer-events: none; }   /* links on the slide take clicks */
+.show.pen canvas.ink { pointer-events: auto; cursor: crosshair; }
 .show .blank { position: absolute; inset: 0; z-index: 6; }
 .show .endscreen { position: absolute; inset: 0; z-index: 5; display: flex; align-items: flex-start; justify-content: center; padding-top: 18px; color: #fff; font: 14px Tahoma, var(--ui-font); background: #000; }
 .show .popbar { position: absolute; left: 12px; bottom: 12px; z-index: 7; display: flex; gap: 4px; opacity: 0; transition: opacity .25s; }
@@ -300,7 +301,6 @@
   <div class="statusbar" id="statusbar"></div>
 </div>
 <script src="../common/suite.js"></script>
-<script>window.L = { APP_ID: 'lectern', APP_NAME: 'Lectern', APP: 'Lectern' };</script>
 <script src="../common/core.js"></script>
 <script src="../common/i18n.js"></script>
 <script src="../common/locales.js"></script>

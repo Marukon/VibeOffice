@@ -61,7 +61,9 @@ bar, status bar, Header and Footer, Comments, Full Screen and Zoom (10–400 %, 
 
 **Insert.** Cells, Rows, Columns, Worksheet, Chart (the four-step Chart Wizard), Symbol, Page Break,
 Function (Insert Function and Function Arguments with live results and help for every function),
-Name (Define, Paste, Create, Apply), Comment, Picture from file, AutoShapes, Text Box, Hyperlink.
+Name (Define, Paste, Create, Apply), Comment, Picture from file, AutoShapes, Text Box, Hyperlink. Open
+Hyperlink goes to a reference in the workbook; a web, mail or file address is shown to copy, never opened
+(docs/suite.md, Hyperlinks).
 
 **Format.** Format Cells with all six tabs (Number with the full category list and custom formats,
 Alignment with indent, rotation, wrap, shrink and merge, Font, Border, Patterns, Protection), Row and
@@ -101,6 +103,12 @@ searchable topics, the keyboard-shortcut reference and a function reference for 
 - Number formats follow Excel to the letter: sections and conditions, colours, `[h]:mm` elapsed time,
   fractions, scientific and engineering notation, `_` and `*` padding, locale and currency tags, and
   the General format that shows as many digits as the column has room for (otherwise `####`).
+  `aaa` and `aaaa` show the weekday, short and full, in the language of the format's tag, as Excel
+  does: `[$-411]` 水 and 水曜日, `[$-412]` 수 and 수요일, `[$-804]` and `[$-404]` 三 and 星期三,
+  `[$-40C]` mer. and mercredi, `[$-407]` Mi and Mittwoch (a Windows language ID or a tag such as
+  `[$-ja-JP]`). Untagged, or in another language, they are English, as `ddd` and `dddd` are, whatever
+  the UI's language. LibreOffice shows the same except Korean, in Hanja (水, 水曜日). Cells and `TEXT`
+  use the same formatter, and a weekday-only format counts as a date.
 
 ### Charts, pictures and drawing
 
@@ -132,7 +140,7 @@ printer itself.
 | Strict Open XML `.xlsx` | yes | standard Transitional OOXML (recorded, not shown) |
 | CSV `.csv`, text `.txt` / `.tsv` / `.prn` | yes: UTF-8, UTF-16 and Windows-1252 detected; the Text Import Wizard for delimited and fixed-width text | yes: CSV (UTF-8) and tab-delimited text, what each cell shows, as Excel does |
 | XML Spreadsheet 2003 `.xml` | yes | yes |
-| Web Page `.htm` / `.html` | yes: each table on the page becomes a sheet | yes: one self-contained page per workbook |
+| Web Page `.htm` / `.html` | yes: each table on the page becomes a sheet | yes: one self-contained page per workbook, with its own security policy (no scripts) |
 | PDF | — | yes |
 | Excel 97–2003 `.xls` | no — Ledger explains how to convert it | no |
 
