@@ -1,11 +1,12 @@
-# Ledger 2003 — Web Edition
+# Ledger — Web Edition
 
 A spreadsheet in the image of Excel 2003, written in plain HTML and vanilla JavaScript, with
 no libraries, no frameworks, no build step at run time. It opens and saves Office Open XML workbooks
 (`.xlsx`, `.xlsm`, `.xltx`, `.xltm`, password-protected ones included), CSV and text files, and XML Spreadsheet
 2003, and it exports web pages and PDF.
 
-The look is Office 2003 on Windows XP (Luna Blue): menus with their access keys, the Standard and
+The look is Office 2003 (or the suite's Paper look, or Paper 2016, whose ribbon has Excel 2016's tabs
+in place of the menus and toolbars; Tools ▸ Options ▸ General ▸ Theme): menus with their access keys, the Standard and
 Formatting toolbars, the Name Box and formula bar, sheet tabs with the four scroll arrows, the task
 pane, the status bar with AutoCalculate, and the dialogs where you expect them (Format Cells, Page
 Setup, Sort, Chart Wizard, Insert Function, Text Import Wizard and some forty more).
@@ -29,7 +30,8 @@ script list in `tools/ledger/build/make.py`, then run `python3 tools/ledger/buil
 **File.** New (blank, or from eight built-in templates: Loan Amortization, Expense Statement, Sales
 Invoice, Timecard, Personal Monthly Budget, Task Tracker, Shopping List, Weekly Schedule), Open, Close, Save, Save As with every format listed under
 *File formats*, Save as Web Page, Page Setup, Print Area, Print Preview, Print (to PDF), Send To,
-Properties. Several workbooks can be open at once (Window menu).
+Properties. Several workbooks can be open at once (Window menu). A new workbook follows the UI's
+language: A4, and Japanese, Korean or Chinese defaults for font and row height ([i18n.md](i18n.md), Defaults).
 
 **Edit.** Multi-level Undo and Redo, including structural changes (inserting or deleting rows,
 sorting, moving sheets). Cut, Copy, Paste, Paste Special (values, formulas, formats, comments,
@@ -39,20 +41,29 @@ types, Justify), Clear, Delete, Delete Sheet, Move or Copy Sheet, Find and Repla
 within sheet or workbook, by rows or columns, formulas, values or comments, match case or entire cell),
 Go To and Go To Special, Edit Links. Copying to and from other programs carries tab-separated text and
 HTML tables.
+Ctrl+D and Ctrl+R fill the entire selected range, including empty destinations beyond the used
+cells, and copy formatting and translated relative formulas. A single destination cell copies
+from above or from the left; whole-row/column selections bound only the selected whole dimension.
+On protected sheets, fill checks every cell in that bounded selection, including blank cells
+and destinations beyond the ordinary selection probe, before making any changes.
 
 **Entering data.** Excel's own input rules: numbers, percentages, currency, fractions (`1 1/2`),
 dates and times in the usual short forms, a leading apostrophe for text, formulas with point mode
-(click or use the arrow keys to insert references, F4 to cycle `$`), colour-coded reference highlights,
+(click or use the arrow keys to insert references, also after F2 wherever the formula expects one; Shift+click
+extends the last one; F4 to cycle `$`), colour-coded reference highlights,
 AutoComplete from the column, AutoCorrect, AutoFill by dragging the fill handle (numbers, dates,
 weekdays, months, quarters, custom lists), Ctrl+Enter and Alt+Enter.
 
-**View.** Normal and Page Break Preview (drag the blue page breaks), the task pane, the eight
+**View.** Normal and Page Break Preview (drag the blue page breaks), the task pane (while open it shows
+Chart, Picture or Drawing Tools for a selected object; docs/suite.md), the eight
 toolbars (Standard, Formatting, Borders, Chart, Drawing, Formula Auditing, Reviewing, List), formula
 bar, status bar, Header and Footer, Comments, Full Screen and Zoom (10–400 %, Fit Selection).
 
 **Insert.** Cells, Rows, Columns, Worksheet, Chart (the four-step Chart Wizard), Symbol, Page Break,
 Function (Insert Function and Function Arguments with live results and help for every function),
-Name (Define, Paste, Create, Apply), Comment, Picture from file, AutoShapes, Text Box, Hyperlink.
+Name (Define, Paste, Create, Apply), Comment, Picture from file, AutoShapes, Text Box, Hyperlink. Open
+Hyperlink goes to a reference in the workbook; a web, mail or file address is shown to copy, never opened
+(docs/suite.md, Hyperlinks).
 
 **Format.** Format Cells with all six tabs (Number with the full category list and custom formats,
 Alignment with indent, rotation, wrap, shrink and merge, Font, Border, Patterns, Protection), Row and
@@ -92,6 +103,12 @@ searchable topics, the keyboard-shortcut reference and a function reference for 
 - Number formats follow Excel to the letter: sections and conditions, colours, `[h]:mm` elapsed time,
   fractions, scientific and engineering notation, `_` and `*` padding, locale and currency tags, and
   the General format that shows as many digits as the column has room for (otherwise `####`).
+  `aaa` and `aaaa` show the weekday, short and full, in the language of the format's tag, as Excel
+  does: `[$-411]` 水 and 水曜日, `[$-412]` 수 and 수요일, `[$-804]` and `[$-404]` 三 and 星期三,
+  `[$-40C]` mer. and mercredi, `[$-407]` Mi and Mittwoch (a Windows language ID or a tag such as
+  `[$-ja-JP]`). Untagged, or in another language, they are English, as `ddd` and `dddd` are, whatever
+  the UI's language. LibreOffice shows the same except Korean, in Hanja (水, 水曜日). Cells and `TEXT`
+  use the same formatter, and a weekday-only format counts as a date.
 
 ### Charts, pictures and drawing
 
@@ -100,7 +117,9 @@ searchable topics, the keyboard-shortcut reference and a function reference for 
 - Charts in opened files are drawn from their own definitions (3-D charts flat; radar and stock charts
   as lines; bubble charts as scatter) and are saved back unchanged unless you edit them.
 - Pictures (PNG, JPEG, GIF, BMP, SVG and Windows metafiles — EMF and WMF are drawn by Ledger's own
-  metafile player), AutoShapes and text boxes: move, resize, copy, order, Format Object.
+  metafile player), AutoShapes and text boxes: move, resize, copy, order, Format Object; their text is edited in
+  place (a click in a text box, or on the text of a selected AutoShape, puts the caret there; a text box moves by its
+  edge).
 - Conditional formatting from newer files is shown too: data bars, colour scales and icon sets
   (including the Excel 2010 sets and custom icon combinations), and sparklines.
 
@@ -121,7 +140,7 @@ printer itself.
 | Strict Open XML `.xlsx` | yes | standard Transitional OOXML (recorded, not shown) |
 | CSV `.csv`, text `.txt` / `.tsv` / `.prn` | yes: UTF-8, UTF-16 and Windows-1252 detected; the Text Import Wizard for delimited and fixed-width text | yes: CSV (UTF-8) and tab-delimited text, what each cell shows, as Excel does |
 | XML Spreadsheet 2003 `.xml` | yes | yes |
-| Web Page `.htm` / `.html` | yes: each table on the page becomes a sheet | yes: one self-contained page per workbook |
+| Web Page `.htm` / `.html` | yes: each table on the page becomes a sheet | yes: one self-contained page per workbook, with its own security policy (no scripts) |
 | PDF | — | yes |
 | Excel 97–2003 `.xls` | no — Ledger explains how to convert it | no |
 
@@ -322,7 +341,7 @@ an external connection. Excel performs any requested refresh when it opens the s
 | Save, reopen or recover a draft | Write the current pivot state and original identities; drafts retain the same refresh requests and pending notices without showing or acknowledging the checker. |
 
 The pinned inventory contains 105 pivot workbooks, including 14 with shared caches, but no
-defined-name or consolidation source. `tools/ledger/test/pivot-fixtures.py` supplies those two
+defined-name or consolidation source. `tests/ledger/pivot-fixtures.py` supplies those two
 structural fixtures from a pinned range-source workbook. Both have zero package/SDK diagnostics;
 an independent reader confirms their source kinds, and the consolidation's ten input values match
 its cache and output. Twelve focused pivot cases pass, covering all five source kinds, shared caches,
@@ -456,7 +475,7 @@ browser drivers exercise the shipping readers/writers, real undo operations and 
 Independent ZIP/XML checks, Open XML SDK diagnostics and openpyxl comparisons are separate from the
 app's own reopen check. Commands and comparison policies are in [testing.md](testing.md).
 
-Formula recalculation, CSV, XML Spreadsheet 2003 and UI harnesses remain in `tools/ledger/test/`.
+Formula recalculation, CSV, XML Spreadsheet 2003 and UI harnesses remain in `tests/ledger/`.
 Their earlier broad-corpus measurements are archived with the run history, rather than mixed into
 the current OOXML preservation figures. Current preservation does not imply exact print layout or
 support for every formula or external data source.
@@ -482,7 +501,7 @@ support for every formula or external data source.
 
 | File | What it does |
 | --- | --- |
-| `index.html`, `tools/ledger/build/` | Window chrome, Ledger's CSS after the shared `../common/luna.css`, script order (generated by the build script) |
+| `index.html`, `tools/ledger/build/` | Window chrome, Ledger's CSS after the shared `../common/looks.css` and `../common/ui.css`, script order (generated by the build script) |
 | `js/pivots.js` | Preserved pivot/cache identities, source and output edits, shared-cache history and refresh notices |
 | `js/threads.js` | Complete threads beside notes, root-text edits, mentions/persons and copied identities |
 | `js/objects.js` | Controls/OLE ownership, linked DrawingML/VML identities, payload copies and note/VML merging |
@@ -495,15 +514,17 @@ support for every formula or external data source.
 | `js/model.js`, `js/ops.js` | Workbook model (sparse rows, shared styles, names, tables), undo history, every editing operation |
 | `js/formula.js`, `js/calc.js` | Formula language (A1, R1C1, structured references, `@`, spills), calculation engine and dependency graph |
 | `js/fn-core.js`, `js/fn-lookup.js`, `js/fn-stat.js`, `js/fn-fin.js`, `js/fn-eng.js`, `js/fninfo.js` | The 519 worksheet functions and their catalogue for Insert Function |
-| `../common/numfmt.js`, `js/layout.js`, `js/render.js`, `js/cf.js`, `js/styles.js` | Number formats, text measurement, the canvas renderer, conditional formats, list styles |
+| `../common/numfmt.js`, `js/layout.js`, `js/render.js`, `js/cf.js`, `js/styles.js` | Number formats, text measurement, the canvas renderer (with the 17 cell fill patterns, as Excel draws them: docs/testing.md), conditional formats, list styles |
 | `js/grid.js`, `js/editor.js`, `js/clipboard.js` | Selection, scrolling, keyboard and mouse; in-cell editing and point mode; clipboard |
 | `js/preserve.js` | Package ownership, workbook/property merges and retained style indices |
 | `js/xlsx-read.js`, `js/xlsx-write.js`, `js/csv.js`, `js/xmlss.js` | File formats |
 | `../common/dml.js`, `../common/charts.js`, `js/xchart.js`, `js/drawing.js`, `../common/geometry.js`, `../common/metafile.js` | DrawingML, chart model and SVG drawing, Chart Wizard, pictures and AutoShapes, WMF/EMF |
 | `js/filter.js`, `js/print.js`, `../common/spell.js`, `js/spell.js`, `js/panes.js` | AutoFilter, printing and Print Preview, the shared spelling engine with Ledger's Spelling dialog and AutoCorrect, task panes and templates |
-| `../common/ui.js`, `../common/icons.js`, `../common/luna.css`, `js/commands.js`, `js/dialogs*.js`, `js/app.js` | Menus, toolbars and dialogs; original 16×16 icons; the command registry; the application controller |
+| `../common/ui.js`, `../common/search.js`, `../common/icons.js`, `../common/looks.css`, `../common/ui.css`, `js/commands.js`, `js/dialogs*.js`, `js/app.js` | Menus, toolbars and dialogs; Search commands; original 16×16 icons; the command registry; the application controller |
+| `../common/scout/` | Scout, the assistant: Help ▸ Show the Assistant ([suite.md](suite.md#the-assistant-scout)) |
+| `js/ribbon.js`, `../common/ribbon.js` | The Paper 2016 look's ribbon: Excel's tabs and groups over Ledger's commands ([suite.md](suite.md#the-ribbon)) |
 | `../common/dict/` | Spelling word lists (English U.S. and U.K.) and their licences (shared with Quire) |
-| `tools/ledger/test/` | The test harnesses described above (Node.js and Playwright) |
+| `tests/ledger/` | The test harnesses described above (Node.js and Playwright) |
 
 Ledger is an independent program. Microsoft, Excel and Office are trademarks of Microsoft Corporation;
-Ledger is not affiliated with Microsoft.
+Ledger is not affiliated with Microsoft. More in the README (Legal).

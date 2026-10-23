@@ -90,13 +90,14 @@
     const content = h('div', { class: 'gobj-c' });
     el.appendChild(content);
     el.addEventListener('pointerdown', (e) => onDown(e, el));
-    el.addEventListener('dblclick', (e) => { e.stopPropagation(); DR.activate(el._d); });
+    el.addEventListener('dblclick', (e) => { e.stopPropagation(); DR.activate(el._d, { x: e.clientX, y: e.clientY, word: true }); });
     el.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); if (G().selectedObject() !== el._d) G().selectObject(el._d); DR.contextMenu(e, el._d); });
     void s;
     return el;
   };
   DR.update = function (el, d, s, rc, selected) {
     el._d = d;
+    el.classList.toggle('txbox', d.kind === 'shape' && !!d.txBox);   /* a press inside a text box edits its text */
     const content = el.firstChild;
     const z = (s.view.zoom || 100) / 100;
     const w = Math.max(1, Math.round(rc.w)), hh = Math.max(1, Math.round(rc.h));
@@ -114,15 +115,15 @@
             Object.assign(img.style, { position: 'absolute', width: sx * 100 + '%', height: sy * 100 + '%', left: -crop.l / 100 * sx * 100 + '%', top: -crop.t / 100 * sy * 100 + '%', maxWidth: 'none' });
           }
           content.appendChild(img);
-        } else content.appendChild(h('div', { class: 'gobj-ph', text: (d.name || 'Picture') }));
+        } else content.appendChild(h('div', { class: 'gobj-ph', translate: 'no', text: d.name || L.t('Picture') }));
       }
     } else if (d.kind === 'chart') {
       const key = `c${w}x${hh}@${z}#${wb().version}:${d.chart ? JSON.stringify([d.chart.kind, d.chart.title, d.chart.legend, d.chart.labels, d.chart.gridY, d.chart.series && d.chart.series.length]) : ''}`;
       if (el._key !== key) {
         el._key = key;
         content.textContent = '';
-        if (d.chart) { try { content.appendChild(L.xchart.render(d.chart, wb(), s, w, hh, z)); } catch (e) { console.error(e); content.appendChild(h('div', { class: 'gobj-ph', text: d.name || 'Chart' })); } }
-        else content.appendChild(h('div', { class: 'gobj-ph', text: (d.name || 'Chart') + '\n(this chart type is not displayed)' }));
+        if (d.chart) { try { content.appendChild(L.xchart.render(d.chart, wb(), s, w, hh, z)); } catch (e) { console.error(e); content.appendChild(h('div', { class: 'gobj-ph', translate: 'no', text: d.name || L.t('Chart') })); } }
+        else content.appendChild(h('div', { class: 'gobj-ph', translate: 'no', text: L.t('{0}\n(this chart type is not displayed)', d.name || L.t('Chart')) }));
       }
     } else {
       const p = shapeProps(d);
@@ -176,7 +177,7 @@
   function textBox(d, p, z) {
     const text = d.dirty || !p.paras ? (d.text != null ? d.text : p.text) : null;
     if (!text && !(p.paras && p.paras.some((q) => q.runs.length))) return null;
-    const box = h('div', { class: 'gobj-t v-' + (p.vAlign || 't') });
+    const box = h('div', { class: 'gobj-t v-' + (p.vAlign || 't'), translate: 'no' });
     const f = d.font || {};
     box.style.fontSize = ((f.sz || 10) * z) + 'pt';
     box.style.fontFamily = LY.fontStack(f.name || 'Arial');
@@ -193,7 +194,7 @@
       if (!para.runs.length) pe.appendChild(h('br'));
       for (const r of para.runs) {
         if (r.t === '\n') { pe.appendChild(h('br')); continue; }
-        const sp = h('span', { text: r.t });
+        const sp = h('span', { translate: 'no', text: r.t });
         if (r.sz) sp.style.fontSize = r.sz * z + 'pt';
         if (r.b) sp.style.fontWeight = 'bold';
         if (r.i) sp.style.fontStyle = 'italic';
@@ -209,12 +210,13 @@
 
   /* ------------------------------------------------------------ interaction */
   const guard = () => G().guardProtect && G().guardProtect('objects');
-  function replace(d, patch, label) {
+  /** d changed by patch, as one undo step; the new one is selected unless opts.select is false */
+  function replace(d, patch, label, opts) {
     const s = sh();
     const nd = Object.assign({}, d, patch);
     delete nd._props;
     O.tx(wb(), label || 'Move Object', () => O.setDrawings(s, s.drawings.map((x) => (x === d ? nd : x))));
-    G().selectObject(nd);
+    if (!opts || opts.select !== false) G().selectObject(nd);
     G().syncObjects(true);
     return nd;
   }
@@ -235,49 +237,65 @@
     /* a shape whose text is being edited: the press places the caret and a drag selects text */
     if (el.classList.contains('editing')) return;
     e.preventDefault();
+    if (e.button !== 0) return;
     if (L.editor && L.editor.active && !L.editor.commit()) return;
-    const d = el._d;
-    if (G().selectedObject() !== d) G().selectObject(d);
+    const d = el._d, wasSelected = G().selectedObject() === d;
+    /* a press inside a text box (not on its edge, which moves it) edits its text: the caret where it was pressed, and
+       a drag selects text, as in Excel */
+    if (d.kind === 'shape' && d.txBox && e.target.closest('.gobj-t') && !d.locked && !(sh().protection && !d.unlocked)) {
+      if (!wasSelected) G().selectObject(d);
+      DR.editText(d, null, { x: e.clientX, y: e.clientY });
+      const box = el.querySelector('.gobj-t'), s = window.getSelection();
+      ui.drag(e, { capture: false, threshold: 0, cursor: false, move(ev) {
+        const r = document.caretRangeFromPoint && document.caretRangeFromPoint(ev.clientX, ev.clientY);
+        if (r && box && box.contains(r.startContainer) && s.rangeCount) s.extend(r.startContainer, r.startOffset);
+      } });
+      return;
+    }
+    if (!wasSelected) G().selectObject(d);
+    const onText = d.kind === 'shape' && !!e.target.closest('.gobj-t');   /* the press, not the release: the drag holds the pointer */
     G().focus();
     const handle = e.target.closest('.gobj-h');
     if ((d.locked || (sh().protection && !d.unlocked)) && guard()) return;
-    const x0 = e.clientX, y0 = e.clientY;
     const r0 = { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight };
     const ratio = r0.w / Math.max(1, r0.h);
-    let moved = false, cur = Object.assign({}, r0);
+    let cur = Object.assign({}, r0);
     const ghost = h('div', { class: 'gobj-ghost' });
-    const mv = (ev) => {
-      const dx = ev.clientX - x0, dy = ev.clientY - y0;
-      if (!moved && Math.abs(dx) + Math.abs(dy) < 3) return;
-      if (!moved) { moved = true; el.parentNode.appendChild(ghost); }
-      cur = Object.assign({}, r0);
-      if (!handle) { cur.x += dx; cur.y += dy; if (ev.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) cur.y = r0.y; else cur.x = r0.x; } }
-      else {
-        const k = handle.dataset.h;
-        if (/e/.test(k)) cur.w = Math.max(4, r0.w + dx);
-        if (/s/.test(k)) cur.h = Math.max(4, r0.h + dy);
-        if (/w/.test(k)) { cur.w = Math.max(4, r0.w - dx); cur.x = r0.x + r0.w - cur.w; }
-        if (/n/.test(k)) { cur.h = Math.max(4, r0.h - dy); cur.y = r0.y + r0.h - cur.h; }
-        if ((ev.shiftKey || d.kind === 'image') && k.length === 2) { /* corners keep the aspect ratio (pictures always) */
-          const wv = cur.w, hv = cur.h;
-          if (wv / hv > ratio) cur.w = hv * ratio; else cur.h = wv / ratio;
-          if (/w/.test(k)) cur.x = r0.x + r0.w - cur.w;
-          if (/n/.test(k)) cur.y = r0.y + r0.h - cur.h;
+    /* the outline follows the drag; the release moves or resizes the object, a cancel leaves it as it was */
+    ui.drag(e, {
+      capture: el,
+      threshold: 3,
+      move(ev, g) {
+        if (!ghost.parentNode) el.parentNode.appendChild(ghost);
+        const dx = g.dx, dy = g.dy;
+        cur = Object.assign({}, r0);
+        if (!handle) { cur.x += dx; cur.y += dy; if (ev.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) cur.y = r0.y; else cur.x = r0.x; } }
+        else {
+          const k = handle.dataset.h;
+          if (/e/.test(k)) cur.w = Math.max(4, r0.w + dx);
+          if (/s/.test(k)) cur.h = Math.max(4, r0.h + dy);
+          if (/w/.test(k)) { cur.w = Math.max(4, r0.w - dx); cur.x = r0.x + r0.w - cur.w; }
+          if (/n/.test(k)) { cur.h = Math.max(4, r0.h - dy); cur.y = r0.y + r0.h - cur.h; }
+          if ((ev.shiftKey || d.kind === 'image') && k.length === 2) { /* corners keep the aspect ratio (pictures always) */
+            const wv = cur.w, hv = cur.h;
+            if (wv / hv > ratio) cur.w = hv * ratio; else cur.h = wv / ratio;
+            if (/w/.test(k)) cur.x = r0.x + r0.w - cur.w;
+            if (/n/.test(k)) cur.y = r0.y + r0.h - cur.h;
+          }
         }
-      }
-      Object.assign(ghost.style, { left: cur.x + 'px', top: cur.y + 'px', width: cur.w + 'px', height: cur.h + 'px' });
-    };
-    const up = () => {
-      document.removeEventListener('pointermove', mv);
-      document.removeEventListener('pointerup', up);
-      ghost.remove();
-      if (!moved) return;
-      const fr = G().frame();
-      if (d.anchor && d.anchor.type !== 'abs') { cur.x = Math.max(fr.hdrW, cur.x); cur.y = Math.max(fr.hdrH, cur.y); }
-      replace(d, { anchor: anchorFor(d, cur.x, cur.y, cur.w, cur.h) }, handle ? 'Resize Object' : 'Move Object');
-    };
-    document.addEventListener('pointermove', mv);
-    document.addEventListener('pointerup', up);
+        Object.assign(ghost.style, { left: cur.x + 'px', top: cur.y + 'px', width: cur.w + 'px', height: cur.h + 'px' });
+      },
+      up(ev, g) {
+        ghost.remove();
+        /* a click on the text of a shape already selected puts the caret there (a drag moves it) */
+        if (!g.moved && !handle && wasSelected && onText && (d.text || '').length) { DR.editText(d, null, { x: ev.clientX, y: ev.clientY }); return; }
+        if (!g.moved) return;
+        const fr = G().frame();
+        if (d.anchor && d.anchor.type !== 'abs') { cur.x = Math.max(fr.hdrW, cur.x); cur.y = Math.max(fr.hdrH, cur.y); }
+        replace(d, { anchor: anchorFor(d, cur.x, cur.y, cur.w, cur.h) }, handle ? 'Resize Object' : 'Move Object');
+      },
+      cancel() { ghost.remove(); },
+    });
   }
   /** keys while an object is selected; true when handled */
   DR.key = function (e, d) {
@@ -305,12 +323,15 @@
     return !ctrl; /* swallow typing so it does not go into cells */
   };
   /** double-click / Enter: edit a chart's options or a shape's text */
-  DR.activate = function (d) {
+  /** at: the point double-clicked, for a shape's text (its word is selected) */
+  DR.activate = function (d, at) {
     if (d.kind === 'chart') { if (d.chart) L.chartWizard.open({ edit: d }); return; }
-    if (d.kind === 'shape') { DR.editText(d); return; }
+    if (d.kind === 'shape') { DR.editText(d, null, at); return; }
     if (d.kind === 'image') DR.format(d);
   };
-  DR.editText = function (d, firstKey) {
+  /** edit a shape's text: firstKey replaces it (typing on the selected shape); at { x, y, word }: the caret goes to
+      that point (and its word is selected), else to the end */
+  DR.editText = function (d, firstKey, at) {
     if (guard()) return;
     const el = Array.from(L.$('#glayer').children).find((x) => x._d === d);
     if (!el) return;
@@ -325,13 +346,18 @@
     box.contentEditable = 'true';
     box.spellcheck = false;
     box.focus();
-    const range = document.createRange(); range.selectNodeContents(box); range.collapse(false); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    let range = at && !firstKey && document.caretRangeFromPoint ? document.caretRangeFromPoint(at.x, at.y) : null;
+    if (!range || !box.contains(range.startContainer)) { range = document.createRange(); range.selectNodeContents(box); range.collapse(false); }
+    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    if (at && at.word && sel.modify && range.startContainer.nodeType === 3) { sel.modify('move', 'backward', 'word'); sel.modify('extend', 'forward', 'word'); }
     const finish = () => {
       box.removeEventListener('blur', finish);
       box.contentEditable = 'false';
       el.classList.remove('editing');
       const text = box.innerText.replace(/\n$/, '');
-      if (text !== (p.text || '')) replace(d, { text, dirty: true, geom: p.geom, fill: p.fill, line: p.line, lineW: p.lineW, font: d.font || { name: 'Arial', sz: 10 } }, 'Typing');
+      /* Esc leaves the shape selected; a press elsewhere (a cell, which has already deselected it) doesn't select it again */
+      const select = G().selectedObject() === d;
+      if (text !== (p.text || '')) replace(d, { text, dirty: true, geom: p.geom, fill: p.fill, line: p.line, lineW: p.lineW, font: d.font || { name: 'Arial', sz: 10 } }, L.N('Typing'), { select });
       else { el._key = null; G().syncObjects(); }
       G().focus();
     };
@@ -368,7 +394,7 @@
       if (a.to) a.to = Object.assign({}, a.to, same ? { r: a.to.r + 1, c: a.to.c + 1 } : { r: a.to.r + dr, c: a.to.c + dc });
     }
     if (d.chart) d.chart.dirty = true;
-    O.tx(wb(), 'Paste', () => O.setDrawings(s, s.drawings.concat([d])));
+    O.tx(wb(), L.N('Paste'), () => O.setDrawings(s, s.drawings.concat([d])));
     G().selectObject(d);
     G().syncObjects(true);
   };
@@ -380,7 +406,7 @@
     const s = sh();
     const rest = s.drawings.filter((x) => x !== d);
     const list = where === 'front' ? rest.concat([d]) : where === 'back' ? [d].concat(rest) : (() => { const i = s.drawings.indexOf(d); const l = s.drawings.slice(); const j = where === 'forward' ? Math.min(l.length - 1, i + 1) : Math.max(0, i - 1); l.splice(i, 1); l.splice(j, 0, d); return l; })();
-    O.tx(wb(), 'Order', () => O.setDrawings(s, list));
+    O.tx(wb(), L.N('Order'), () => O.setDrawings(s, list));
     G().syncObjects(true);
   };
   DR.contextMenu = function (e, d) {
@@ -451,34 +477,39 @@
     const ov = h('div', { class: 'draw-overlay', 'aria-label': 'Drag to draw' });
     wrap.appendChild(ov);
     tool = { kind, ov };
-    L.app.status('Drag in the worksheet to insert the ' + (kind === 'textbox' ? 'text box' : 'AutoShape') + '. Press Esc to cancel.');
+    L.app.status(kind === 'textbox' ? L.t('Drag in the worksheet to insert the text box. Press Esc to cancel.') : L.t('Drag in the worksheet to insert the AutoShape. Press Esc to cancel.'));
     const esc = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); DR.cancelTool(); } };
     document.addEventListener('keydown', esc, true);
     tool.esc = esc;
     ov.addEventListener('pointerdown', (e) => {
       e.preventDefault();
+      e.stopPropagation();   // the grid under the overlay starts no selection of its own
+      if (e.button !== 0) return;
       const r = wrap.getBoundingClientRect();
       const x0 = e.clientX - r.left, y0 = e.clientY - r.top;
       const band = h('div', { class: 'gobj-ghost' });
       ov.appendChild(band);
       let cur = { x: x0, y: y0, w: 0, h: 0 };
-      const mv = (ev) => {
-        const x1 = ev.clientX - r.left, y1 = ev.clientY - r.top;
-        cur = { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
-        if (ev.shiftKey) { const m = Math.max(cur.w, cur.h); cur.w = cur.h = m; }
-        Object.assign(band.style, { left: cur.x + 'px', top: cur.y + 'px', width: cur.w + 'px', height: cur.h + 'px' });
-      };
-      const up = () => {
-        document.removeEventListener('pointermove', mv);
-        document.removeEventListener('pointerup', up);
-        const k = tool.kind;
-        DR.cancelTool();
-        const z = (sh().view.zoom || 100) / 100;
-        if (cur.w < 6 && cur.h < 6) { cur.w = (k === 'textbox' ? 96 : 72) * z * (96 / 72); cur.h = (k === 'textbox' ? 48 : 72) * z * (96 / 72); }
-        DR.insertShape(k, cur);
-      };
-      document.addEventListener('pointermove', mv);
-      document.addEventListener('pointerup', up);
+      /* the release inserts the shape (a click: at its default size); a cancel inserts nothing (Esc also ends the tool) */
+      ui.drag(e, {
+        capture: ov,
+        threshold: 0,
+        move(ev) {
+          const x1 = ev.clientX - r.left, y1 = ev.clientY - r.top;
+          cur = { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+          if (ev.shiftKey) { const m = Math.max(cur.w, cur.h); cur.w = cur.h = m; }
+          Object.assign(band.style, { left: cur.x + 'px', top: cur.y + 'px', width: cur.w + 'px', height: cur.h + 'px' });
+        },
+        up() {
+          if (!tool) return;
+          const k = tool.kind;
+          DR.cancelTool();
+          const z = (sh().view.zoom || 100) / 100;
+          if (cur.w < 6 && cur.h < 6) { cur.w = (k === 'textbox' ? 96 : 72) * z * (96 / 72); cur.h = (k === 'textbox' ? 48 : 72) * z * (96 / 72); }
+          DR.insertShape(k, cur);
+        },
+        cancel(d, why) { band.remove(); if (why === 'esc') DR.cancelTool(); },   /* Esc ends the tool; other cancels keep it */
+      });
     });
   };
   DR.cancelTool = function () {
@@ -497,7 +528,7 @@
     const isText = kind === 'textbox';
     const d = { kind: 'shape', id, name: (isText ? 'Text Box ' : (kind === 'ellipse' ? 'Oval ' : kind === 'line' || kind === 'arrow' ? 'Line ' : 'Rectangle ')) + id, geom: isText ? 'rect' : kind === 'arrow' ? 'straightConnector1' : kind === 'line' ? 'line' : kind, txBox: isText, fill: kind === 'line' || kind === 'arrow' ? null : '#FFFFFF', line: '#000000', lineW: 0.75, text: '', font: { name: 'Arial', sz: 10 }, dirty: true };
     d.anchor = G().rectToAnchor(s, rect.x, rect.y, rect.w, rect.h, { editAs: 'twoCell' });
-    O.tx(wb(), 'Insert ' + (isText ? 'Text Box' : 'AutoShape'), () => O.setDrawings(s, s.drawings.concat([d])));
+    O.tx(wb(), isText ? 'Insert Text Box' : 'Insert AutoShape', () => O.setDrawings(s, s.drawings.concat([d])));
     G().selectObject(d);
     G().syncObjects(true);
     if (isText) setTimeout(() => DR.editText(d), 0);
@@ -508,7 +539,7 @@
     const groups = L.geom ? L.geom.MENU : { 'Basic Shapes': ['rect', 'ellipse'] };
     ui.openMenu([{ label: '&Lines', sub: [{ label: 'Line', run: () => DR.startTool('line') }, { label: 'Arrow', run: () => DR.startTool('arrow') }] }].concat(Object.keys(groups).map((g) => ({ label: g, sub: [{ custom: (close) => {
       const grid = h('div', { class: 'shape-grid' });
-      for (const k of groups[g]) { const b = h('button', { type: 'button', html: L.geom ? L.geom.preview(k, 20) : k, 'data-tip': k, 'aria-label': k }); b.addEventListener('click', () => { close(); DR.startTool(k); }); grid.appendChild(b); }
+      for (const k of groups[g]) { const nm = (L.geom && L.geom.get(k) && L.geom.get(k).label) || k; const b = h('button', { type: 'button', html: L.geom ? L.geom.preview(k, 20) : k, 'data-tip': nm, 'aria-label': nm }); b.addEventListener('click', () => { close(); DR.startTool(k); }); grid.appendChild(b); }
       return grid;
     } }] }))), at);
   };

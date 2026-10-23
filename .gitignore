@@ -5,3 +5,10 @@ node_modules
 !.gitignore
 /issues/*.png
 /issues/*/*.png
+/tmp
+/desktop/target
+/desktop/gen
+!/desktop/.cargo
+!/.github
+/refs
+/todos

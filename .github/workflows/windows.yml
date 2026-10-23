@@ -1,0 +1,71 @@
+# The Windows desktop app (desktop/, docs/desktop.md): VibeOffice-Windows-x64.zip, holding VibeOfficeSetup.exe, the
+# installer carrying the app, built on Linux with mingw and published as a GitHub release tagged with the version
+# (tools/current-tree-version.sh, e.g. v2026.10.11-d2134d). The zip's name stays the same in every release, so
+# releases/latest/download/VibeOffice-Windows-x64.zip is always the newest.
+# Run by hand only: Actions ▸ Windows ▸ Run workflow (pick the branch). Running it again on the same commit
+# replaces the release's files.
+name: Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: Mark the release as a pre-release
+        type: boolean
+        default: false
+
+permissions:
+  contents: write   # create the release and its tag
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64 zip
+          rustup toolchain install stable --profile minimal --target x86_64-pc-windows-gnu
+          rustup default stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop/target
+          key: desktop-${{ hashFiles('desktop/Cargo.lock') }}
+
+      - name: Build
+        id: build
+        run: |
+          desktop/build.sh
+          echo "version=$(tools/current-tree-version.sh)" >> "$GITHUB_OUTPUT"
+
+      # GitHub zips an artifact itself: this one downloads as VibeOffice-Windows-x64.zip, the same as the release's
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VibeOffice-Windows-x64
+          path: desktop/target/dist/VibeOfficeSetup.exe
+          if-no-files-found: error
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.build.outputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          files="desktop/target/dist/VibeOffice-Windows-x64.zip"
+          if gh release view "$VERSION" > /dev/null 2>&1; then
+            gh release upload "$VERSION" $files --clobber
+            for old in "VibeOffice-$VERSION-x64.msi" "VibeOffice-$VERSION-x64-Portable.zip" "VibeOffice-$VERSION-x64.zip"; do   # earlier names
+              gh release delete-asset "$VERSION" "$old" -y 2> /dev/null || true
+            done
+          else
+            flag=""
+            [ "$PRERELEASE" = "true" ] && flag="--prerelease"
+            gh release create "$VERSION" $files --target "$GITHUB_SHA" --title "VibeOffice $VERSION" $flag \
+              --notes-file desktop/release-notes.md   # both downloads: the macOS workflow adds its DMG to the same release
+          fi

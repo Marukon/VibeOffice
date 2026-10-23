@@ -1,5 +1,6 @@
 // Drive an app page in the Chromium at CDP 127.0.0.1:9222: run JS steps, take screenshots,
-// and report console errors, exceptions and any request that leaves 127.0.0.1.
+// and report console errors, exceptions and any request that leaves 127.0.0.1. A Content-Security-Policy
+// refusal, a window the page opens or a page of another site in the tab fails the run (exit code 1).
 //
 //   node tools/shot.mjs <page> [steps.json | 'inline json'] [--w 1280 --h 800]
 //                       [--qs query] [--ready 'expr'] [--out dir] [--keep] [--transparent]
@@ -13,13 +14,17 @@
 // --keep   leave the tab open (brought to the front) instead of closing it
 // --transparent  no default white page background, so .png shots keep transparency (e.g. icons)
 // --inject a.js,b.js  evaluate helper scripts in the page once it is ready
+// --pre a.js,b.js     run scripts before each page's own, on every page the tab loads (as the desktop
+//                     app's initialization script; e.g. tests/desktop/host-stub.js)
 // --timeout ms      longest a single step (or CDP call) may take, default 120000. A hung or crashed
 //                   page still gets its tab closed (also on Ctrl-C / SIGTERM).
+// The page says it is automated (navigator.webdriver), so the assistant waits to be asked (L.assistant.show()).
 // Env: CDP (default http://127.0.0.1:9222), BASE (default http://127.0.0.1:8760)
 import fs from 'fs';
 import path from 'path';
 import net from 'net';
 import { spawn } from 'child_process';
+import { WATCH_CSP, leaves } from './ooxml/cdp.mjs';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const argv = process.argv.slice(2);
@@ -29,6 +34,7 @@ const W = +opt('--w', 1280), H = +opt('--h', 800), qs = opt('--qs', '');
 const ready = opt('--ready', "document.readyState === 'complete'");
 const out = opt('--out', '/tmp/shots');
 const inject = opt('--inject', '');
+const pre = opt('--pre', '');
 const stepMs = +opt('--timeout', 120000);
 const keep = flag('--keep'), transparent = flag('--transparent');
 const [page = '', stepsArg = '[]'] = argv;
@@ -63,7 +69,11 @@ ws.onmessage = (e) => {
   if (m.method === 'Runtime.exceptionThrown') logs.push(`[exception] ${p.exceptionDetails.exception?.description ?? p.exceptionDetails.text}`);
   if (m.method === 'Runtime.consoleAPICalled' && /error|warn/.test(p.type)) logs.push(`[${p.type}] ${p.args.map((a) => a.value ?? a.description).join(' ')}`);
   if (m.method === 'Log.entryAdded' && /error|warning/.test(p.entry.level)) logs.push(`[${p.entry.level}] ${p.entry.text} ${p.entry.url ?? ''}`);
+  if (m.method === 'Page.windowOpen') logs.push(`[WINDOW] ${p.url}`);
+  if (m.method === 'Page.frameNavigated' && !p.frame.parentId && leaves(p.frame.url, BASE)) logs.push(`[NAVIGATION] ${p.frame.url}`);
 };
+/** what fails the run, as well as an aborted step: a CSP refusal, a window opened, a page of another site */
+const fatal = (l) => /^\[(error|log)\] \[CSP\]|^\[(WINDOW|NAVIGATION)\]/.test(l);
 // every call fails after stepMs instead of waiting forever on a hung page; a closed socket (crashed
 // tab) fails whatever is still pending
 const send = (method, params = {}, ms = stepMs) => new Promise((res, rej) => {
@@ -85,11 +95,18 @@ try {
   await send('Network.setCacheDisabled', { cacheDisabled: true });
   // the page keeps focus while the browser window is in the background
   await send('Emulation.setFocusEmulationEnabled', { enabled: true });
+  // an automated browser (navigator.webdriver), so the assistant waits to be asked (common/scout/assistant.js)
+  await send('Emulation.setAutomationOverride', { enabled: true });
   await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: 1, mobile: false });
   if (transparent) await send('Emulation.setDefaultBackgroundColorOverride', { color: { r: 0, g: 0, b: 0, a: 0 } });
 
+  await send('Page.addScriptToEvaluateOnNewDocument', { source: WATCH_CSP });
+  for (const f of pre ? pre.split(',') : []) await send('Page.addScriptToEvaluateOnNewDocument', { source: fs.readFileSync(f, 'utf8') });
+
   const t0 = Date.now();
-  await send('Page.navigate', { url: `${BASE}/${page}${qs ? '?' + qs : ''}` });
+  // the UI in English unless the query asks for a language (lang=ja, lang=qps; common/i18n.js)
+  const q = /(^|&)lang=/.test(qs || '') ? qs : (qs ? qs + '&' : '') + 'lang=en';
+  await send('Page.navigate', { url: `${BASE}/${page}?${q}` });
   let ok = false;
   while (!ok && Date.now() - t0 < 240000) {
     await sleep(250);
@@ -127,4 +144,6 @@ try {
   ws.close();
   server?.kill();
 }
-if (failed) process.exit(1);
+const refused = logs.filter(fatal);
+if (refused.length && !failed) console.log(`FAILED: ${refused.length} CSP refusal(s), window(s) or navigation(s) above`);
+if (failed || refused.length) process.exit(1);

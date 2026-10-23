@@ -15,14 +15,15 @@
     beforeExec() { if (L.ed && L.ed.syncSel && !L.ed.objSel) L.ed.syncSel(); },
     refocus() { if (L.ed) L.ed.refocus(); },
     commitEdit() { if (L.ed && L.ed.textSave) L.ed.textSave(); },
+    ownsText: (el) => !!(L.layout && L.layout.root && L.layout.root.contains(el)),
   };
 
   const DEFAULT_OPTS = {
-    statusBar: true, ruler: true, vruler: true, taskOpen: true, startupPane: true, docMap: false, thumbs: false,
+    statusBar: true, ruler: true, vruler: true, taskOpen: true, startupPane: true, paneFollows: true, docMap: false, thumbs: false,
     toolbars: { standard: true, formatting: true, drawing: true, tables: false, reviewing: 'auto', picture: 'auto', outlining: 'auto', headerFooter: 'auto', mailMerge: false, wordart: 'auto' },
     showMarks: false, marks: { tabs: false, spaces: false, para: false, hidden: false, all: false }, textBoundaries: true, fieldShading: 'selected', bookmarks: false,
     smartQuotes: true, autocorrect: true, autoFormat: true, capSentence: true, autoBullets: true, autoNumbers: true, autoBorders: true, autoHeadings: false, autoUrl: true, ordinals: true, fractions: true, dashes: true,
-    spell: true, unit: 'in', recent: [], zoom: 1, view: 'print', balloons: true, pasteOptions: true, dragDrop: true, smartCut: true, typingReplaces: true,
+    spell: true, unit: (L.locale && L.locale.get().unit) || 'in', recent: [], zoom: 1, view: 'print', balloons: true, pasteOptions: true, dragDrop: true, smartCut: true, typingReplaces: true,
     userName: 'Quire User', userInitials: 'QU', markupMode: 'markup',
   };
   const A = (L.app = Object.assign(L.app || {}, {
@@ -32,9 +33,12 @@
   const doc = () => D.doc;
 
   /* ================= options ================= */
-  A.loadOpts = () => { A.opts = L.deepMerge(L.clone(DEFAULT_OPTS), L.store.get('opts', {}) || {}); D.unit = A.opts.unit || 'in'; };
-  A.saveOpts = () => { L.store.set('opts', A.opts); };
+  /* the options that follow the UI's language, with their English values (common/locales.js) */
+  const EN_OPTS = { unit: 'in' };
+  A.loadOpts = () => { A.opts = L.deepMerge(L.clone(DEFAULT_OPTS), L.locale.savedOpts(L.store.get('opts', {}), EN_OPTS)); D.unit = A.opts.unit || 'in'; };
+  A.saveOpts = () => { L.store.set('opts', L.locale.optsToSave(A.opts, DEFAULT_OPTS, EN_OPTS)); };
   A.applyOpts = () => {
+    document.body.classList.toggle('bluebg', !!A.opts.blueBg);
     D.unit = A.opts.unit || 'in';
     L.store.set('userName', A.opts.userName || 'Quire User');
     L.store.set('userInitials', A.opts.userInitials || '');
@@ -52,7 +56,7 @@
   function buildMenus() {
     const recentItems = () => (window.VO ? VO.recentMenuItems(4) : []);
     const menus = [
-      { label: '&File', items: () => ['new', 'open', 'close', '-', 'save', 'saveAs', 'saveWeb', 'fileSearch', '-', 'webPreview', '-', 'pageSetup', 'printPreview', 'print', '-', { label: 'Sen&d To', sub: ['sendMail', 'exportPDF'] }, 'properties', ...((recentItemsList) => (recentItemsList.length ? ['-', ...recentItemsList] : []))(recentItems()), '-', 'exitApp'] },
+      { label: '&File', items: () => ['new', 'open', 'close', '-', 'save', 'saveAs', 'saveWeb', 'fileSearch', '-', 'webPreview', '-', 'pageSetup', 'printPreview', 'print', '-', { label: 'Sen&d To', sub: ['sendMail', 'exportPDF'] }, 'properties', ...(L.file.native() ? ['versions'] : []), ...((recentItemsList) => (recentItemsList.length ? ['-', ...recentItemsList] : []))(recentItems()), '-', 'exitApp'] },
       {
         label: '&Edit', items: () => ['undo', 'redo', '-', 'cut', 'copy', 'officeClipboard', 'paste', 'pasteSpecial', 'pasteHyperlink', '-',
           { label: 'Cle&ar', sub: ['clearFormats', 'clearContents'] }, 'selectAll', '-', 'find', 'replace', 'goTo', '-', 'links', 'editObject'],
@@ -84,13 +88,11 @@
           'headingRows', { label: 'Con&vert', sub: ['textToTable', 'tableToText'] }, 'sortDlg', 'formulaDlg', 'gridlines', '-', 'tableProps'],
       },
       { label: '&Window', items: () => ['newWindow', 'arrangeAll', 'splitWindow', '-', ...A.windowItems()] },
-      { label: '&Help', items: ['help', 'showAssistant', '-', 'gettingStarted', 'keyboardHelp', '-', 'about'] },
+      { label: '&Help|menu bar', items: ['help', 'showAssistant', '-', 'gettingStarted', 'keyboardHelp', '-', 'about'] },
     ];
     const row = L.$('#menurow');
     A.menuBar = ui.menuBar(row, menus);
-    const q = h('input', { type: 'text', id: 'helpq', placeholder: 'Type a question for help', 'aria-label': 'Type a question for help' });
-    q.addEventListener('keydown', (e) => { if (e.key === 'Enter') { if (L.panes) { L.panes.helpQuery = q.value; L.panes.task.show('help'); } q.value = ''; E.refocus(); } e.stopPropagation(); });
-    row.appendChild(h('div', { class: 'helpbox' }, q, h('span', { class: 'dd-arrow' })));
+    row.appendChild(ui.searchBox());
   }
   function backgroundMenu() {
     return [
@@ -100,7 +102,7 @@
       'printedWatermark',
     ];
   }
-  A.setBackground = (c) => E.edit('Background', () => { D.touchKey(doc(), 'bg'); doc().bg = c; return E.sel; });
+  A.setBackground = (c) => E.edit(L.N('Background'), () => { D.touchKey(doc(), 'bg'); doc().bg = c; return E.sel; });
 
   /* ================= toolbars ================= */
   const listPanel = (items, close) => {
@@ -114,7 +116,7 @@
     return el;
   };
   A.listPanel = listPanel;
-  function tableGridPicker(r) {
+  function tableGridPicker(r, more) {
     ui.openMenu([{
       custom: (close) => {
         const box = h('div', { class: 'tbl-grid-pick' });
@@ -122,23 +124,33 @@
         const cells = h('div', { class: 'tgp-cells' });
         const lbl = h('div', { class: 'tgp-label', text: 'Cancel' });
         let cur = [0, 0];
+        // the cells stay put while the grid grows (a cell replaced under the pointer between press and release
+        // gets no click, so the table was never inserted)
         const draw = () => {
           cells.style.gridTemplateColumns = `repeat(${C}, 18px)`;
-          L.clear(cells);
+          const have = new Map([...cells.children].map((s) => [s.dataset.ij, s]));
+          let next = cells.firstChild;
           for (let i = 0; i < R; i++) for (let j = 0; j < C; j++) {
-            const s = h('span', { class: i < cur[0] && j < cur[1] ? 'on' : '' });
-            s.addEventListener('pointerenter', () => { cur = [i + 1, j + 1]; if (i + 2 > R && R < 12) R++; if (j + 2 > C && C < 10) C++; draw(); lbl.textContent = `${cur[0]} x ${cur[1]} Table`; });
-            s.addEventListener('click', () => { close(); L.tables.insert(cur[0], cur[1]); });
-            cells.appendChild(s);
+            let s = have.get(i + ',' + j);
+            if (s) next = s.nextSibling; else cells.insertBefore(s = h('span', { 'data-ij': i + ',' + j }), next);
+            s.classList.toggle('on', i < cur[0] && j < cur[1]);
           }
         };
+        cells.addEventListener('pointerover', (e) => {
+          const s = e.target.closest('span[data-ij]');
+          if (!s) return;
+          const [i, j] = s.dataset.ij.split(',').map(Number);
+          cur = [i + 1, j + 1]; if (i + 2 > R && R < 12) R++; if (j + 2 > C && C < 10) C++;
+          draw(); lbl.textContent = L.t('{0} x {1} Table', cur[0], cur[1]);
+        });
+        cells.addEventListener('click', () => { if (cur[0]) { close(); L.tables.insert(cur[0], cur[1]); } });
         draw();
         box.append(cells, lbl);
         return box;
       },
-    }], r, { cls: 'grid-menu' });
+    }, ...(more || [])], r, { cls: 'grid-menu' });
   }
-  function columnsPicker(r) {
+  function columnsPicker(r, more) {
     ui.openMenu([{
       custom: (close) => {
         const box = h('div', { class: 'tbl-grid-pick' });
@@ -146,16 +158,16 @@
         const lbl = h('div', { class: 'tgp-label', text: 'Cancel' });
         for (let j = 0; j < 4; j++) {
           const s = h('span', { style: 'height:30px' });
-          s.addEventListener('pointerenter', () => { L.$$('span', cells).forEach((x, k) => x.classList.toggle('on', k <= j)); lbl.textContent = `${j + 1} Column${j ? 's' : ''}`; });
+          s.addEventListener('pointerenter', () => { L.$$('span', cells).forEach((x, k) => x.classList.toggle('on', k <= j)); lbl.textContent = j ? L.t('{0} Columns', j + 1) : L.t('{0} Column', j + 1); });
           s.addEventListener('click', () => { close(); A.setColumns(j + 1); });
           cells.appendChild(s);
         }
         box.append(cells, lbl);
         return box;
       },
-    }], r, { cls: 'grid-menu' });
+    }, ...(more || [])], r, { cls: 'grid-menu' });
   }
-  A.setColumns = (n) => E.edit('Columns', () => { const s = A.curSect(); D.touchKey(s.holder, s.key); s.sect.cols = Object.assign({}, s.sect.cols, { n, eq: true, w: [] }); return E.sel; });
+  A.setColumns = (n) => E.edit(L.N('Columns'), () => { const s = A.curSect(); D.touchKey(s.holder, s.key); s.sect.cols = Object.assign({}, s.sect.cols, { n, eq: true, w: [] }); return E.sel; });
   /** the section object governing the caret (holder/key let undo snapshot it) */
   A.curSect = function () {
     const d = doc();
@@ -171,13 +183,15 @@
     ui.openMenu([1, 1.5, 2, 2.5, 3].map((x) => ({ label: String(x.toFixed(1)), checked: () => v === x, run: () => E.formatPara((pPr) => { pPr.sp = Object.assign({}, pPr.sp, { line: x, rule: 'auto' }); }, 'Line Spacing') }))
       .concat(['-', { label: '&More...', run: () => L.dlg.paragraph() }]), r);
   }
+  const HL_NAMES = [['yellow', L.N('Yellow')], ['green', L.N('Bright Green')], ['cyan', L.N('Turquoise')], ['magenta', L.N('Pink')], ['blue', L.N('Blue')], ['red', L.N('Red')], ['darkBlue', L.N('Dark Blue')], ['darkCyan', L.N('Teal')],
+    ['darkGreen', L.N('Green')], ['darkMagenta', L.N('Violet')], ['darkRed', L.N('Dark Red')], ['darkYellow', L.N('Dark Yellow')], ['darkGray', L.N('Gray-50%')], ['lightGray', L.N('Gray-25%')], ['black', L.N('Black')]];
   function highlightDD(r, anchor) {
     ui.openMenu([{
       custom: (close) => {
         const el = h('div', { class: 'color-panel' });
         const g = h('div', { class: 'cp-grid hl' });
-        for (const n of ['yellow', 'green', 'cyan', 'magenta', 'blue', 'red', 'darkBlue', 'darkCyan', 'darkGreen', 'darkMagenta', 'darkRed', 'darkYellow', 'darkGray', 'lightGray', 'black']) {
-          g.appendChild(h('button', { class: 'cp-sw', type: 'button', style: `background:${L.R.HIGHLIGHT[n]}`, 'data-tip': n.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase()), 'aria-label': n, onclick: () => { close(); A.lastHighlight = n; A.applyHighlight(n); } }));
+        for (const [n, name] of HL_NAMES) {
+          g.appendChild(h('button', { class: 'cp-sw', type: 'button', style: `background:${L.R.HIGHLIGHT[n]}`, 'data-tip': name, 'aria-label': name, onclick: () => { close(); A.lastHighlight = n; A.applyHighlight(n); } }));
         }
         el.appendChild(g);
         el.appendChild(h('button', { class: 'cp-wide', type: 'button', text: 'None', onclick: () => { close(); A.applyHighlight('none'); } }));
@@ -185,7 +199,7 @@
       },
     }], anchor ? anchor.getBoundingClientRect() : r, { cls: 'color-menu' });
   }
-  A.applyHighlight = (n) => { if (E.collapsed()) { A.highlighter = n; L.$('#scroller').classList.add('painting'); A.status('Select text to highlight. Press Esc to stop.'); return; } E.formatRun({ hl: n === 'none' ? undefined : n }, 'Highlight'); };
+  A.applyHighlight = (n) => { if (E.collapsed()) { A.highlighter.start(true, n); return; } E.formatRun({ hl: n === 'none' ? undefined : n }, L.N('Highlight')); };
   function fontColorDD(r, anchor) {
     ui.colorMenu(anchor || r, { mode: 'font' }, (v) => {
       if (v && v.auto) A.applyFontColor('auto');
@@ -231,7 +245,7 @@
         default: if (['top', 'bottom', 'left', 'right'].includes(k)) set(k, !has(k));
       }
       pPr.borders = Object.keys(cur).length ? cur : undefined;
-    }, 'Borders');
+    }, L.N('Borders'));
   };
   A.insertHorizontalLine = () => E.edit('Horizontal Line', () => {
     let pos = E.deleteSelection();
@@ -246,22 +260,26 @@
     const grid = (list) => ({ custom: (close) => { const g = h('div', { class: 'shape-grid' }); for (const k of list) { const p = L.geom.get(k); const b = h('button', { type: 'button', 'data-tip': p.label || k, 'aria-label': p.label || k, html: L.geom.preview(k, 20) }); b.addEventListener('click', () => { close(); L.drawtool && L.drawtool.start({ geom: k, line: !!p.isLine }); }); g.appendChild(b); } return g; } });
     ui.openMenu([
       { label: '&Lines', icon: 'line', sub: ['drawLine', 'drawArrow', 'drawDblArrow'] },
-      ...['Basic Shapes', 'Block Arrows', 'Flowchart', 'Stars and Banners', 'Callouts'].map((g) => ({ label: g.replace(/^(\w)/, '&$1'), icon: { 'Basic Shapes': 'autoshapes', 'Block Arrows': 'arrowStyle', Flowchart: 'diagram', 'Stars and Banners': 'animation', Callouts: 'comment' }[g], sub: [grid(L.geom.MENU[g])] })),
+      ...[['Basic Shapes', '&Basic Shapes', 'autoshapes'], ['Block Arrows', '&Block Arrows', 'arrowStyle'], ['Flowchart', '&Flowchart', 'diagram'], ['Stars and Banners', '&Stars and Banners', 'animation'], ['Callouts', '&Callouts', 'comment']].map(([g, label, icon]) => ({ label, icon, sub: [grid(L.geom.MENU[g])] })),
       '-', { label: '&More AutoShapes...', icon: 'clipart', run: () => L.panes && L.panes.task.show('clipart') },
     ], { left: r.left, bottom: r.bottom }, { selectFirst: !at });
   };
-  function buildToolbars() {
-    const host = L.$('#toolbars');
-    const stState = () => (E.sel ? styleState() : '');
-    const styleCombo = ui.combo({
+  /* the toolbars' boxes and menus, also used by the ribbon (js/ribbon.js): each call makes a new box */
+  A.menus = { tableGrid: (r, more) => tableGridPicker(r, more), columns: (r, more) => columnsPicker(r, more), lineSpacing: (r) => lineSpacingMenu(r), borders: (r, b) => bordersDD(r, b), highlight: (r, b) => highlightDD(r, b), fontColor: (r, b) => fontColorDD(r, b) };
+  A.parts = {
+    style: (o) => ui.combo(Object.assign({
       id: 'tb-style', width: 118, tip: 'Style', listCls: 'styles',
       options: () => A.styleOptions().map((s) => s.label),
       preview: (v) => { const s = A.styleOptions().find((x) => x.label === v); return s ? s.css : ''; },
-      value: stState, onChange: (v) => A.applyStyleByName(v),
-    });
-    const fontCombo = ui.combo({ id: 'tb-font', width: 136, tip: 'Font', options: () => A.fontOptions(), preview: (v) => `font-family:${L.fontStack(v)};font-size:13px`, note: L.fontNote, listCls: 'fonts', value: () => { const v = E.uniformRun('font'); return v || ''; }, onChange: (v) => A.setFont(v) });
-    const sizeCombo = ui.combo({ id: 'tb-size', width: 40, tip: 'Font Size', options: () => L.SIZE_LIST, value: () => { const v = E.uniformRun('sz'); return v ? String(L.round(v, 1)) : ''; }, onChange: (v) => A.setFontSize(parseFloat(v)) });
-    const zoomCombo = ui.combo({ id: 'tb-zoom', width: 74, tip: 'Zoom', options: () => ['500%', '200%', '150%', '100%', '75%', '50%', '25%', '10%', 'Page Width', 'Text Width', 'Whole Page', 'Two Pages'], value: () => Math.round(LY.zoom * 100) + '%', onChange: (v) => A.zoomTo(v) });
+      value: () => (E.sel ? styleState() : ''), onChange: (v) => A.applyStyleByName(v),
+    }, o)),
+    font: (o) => ui.combo(Object.assign({ id: 'tb-font', width: 136, tip: 'Font', options: () => A.fontOptions(), preview: (v) => `font-family:${L.fontStack(v)};font-size:13px`, note: L.fontNote, listCls: 'fonts', value: () => (A.typingEA() && E.uniformRun('fontEA')) || E.uniformRun('font') || '', onChange: (v) => A.setFont(v) }, o)),
+    size: (o) => ui.combo(Object.assign({ id: 'tb-size', width: 48, tip: 'Font Size', options: () => L.SIZE_LIST, value: () => { const v = E.uniformRun('sz'); return v ? String(L.round(v, 1)) : ''; }, onChange: (v) => A.setFontSize(parseFloat(v)) }, o)),
+    zoom: (o) => ui.combo(Object.assign({ id: 'tb-zoom', width: 74, tip: 'Zoom', options: () => ['500%', '200%', '150%', '100%', '75%', '50%', '25%', '10%'].concat([L.N('Page Width'), L.N('Text Width'), L.N('Whole Page'), L.N('Two Pages')].map((v) => ({ value: v, label: L.t(v) }))), value: () => Math.round(LY.zoom * 100) + '%', onChange: (v) => A.zoomTo(v) }, o)),
+  };
+  function buildToolbars() {
+    const host = L.$('#toolbars');
+    const styleCombo = A.parts.style(), fontCombo = A.parts.font(), sizeCombo = A.parts.size(), zoomCombo = A.parts.zoom();
     A.toolbarsEl = {
       standard: ui.toolbar('standard', 'Standard', ['new', 'open', 'save', 'permission', 'sendMail', 'print', 'printPreview', 'spelling', 'research', '|', 'cut', 'copy', 'paste', 'painter', '|',
         ui.tbSplit('undo', (r) => A.historyMenu(r, 'undo')), ui.tbSplit('redo', (r) => A.historyMenu(r, 'redo')), '|', 'hyperlink', ui.tbButton('tb_tables', { icon: 'tablesBorders' }),
@@ -278,12 +296,12 @@
         'insertComment', 'trackChanges', 'reviewingPane']),
       picture: ui.toolbar('picture', 'Picture', ['insertPicture', ui.tbDrop('', 'colorPic', (r) => ui.openMenu([{ label: '&Automatic', run: () => A.picMode('') }, { label: '&Grayscale', run: () => A.picMode('gray') }, { label: '&Black & White', run: () => A.picMode('bw') }, { label: '&Washout', run: () => A.picMode('washout') }], r), 'Color'),
         'picMoreContrast', 'picLessContrast', 'picMoreBright', 'picLessBright', '|', 'picCrop', 'picRotate', ui.tbDrop('', 'lineStyle', (r) => A.objLineWeightMenu(r), 'Line Style'), '|', ui.tbDrop('', 'textWrap', (r) => A.wrapMenu(r), 'Text Wrapping'), 'formatObject', 'picReset']),
-      outlining: ui.toolbar('outlining', 'Outlining', ['promoteH1', 'promote', ui.combo({ id: 'tb-olvl', width: 74, tip: 'Outline Level', options: () => ['Level 1', 'Level 2', 'Level 3', 'Level 4', 'Level 5', 'Level 6', 'Level 7', 'Level 8', 'Level 9', 'Body text'], value: () => { const l = E.sel ? D.headingLevel(doc(), E.sel.f.p) : 0; return l ? 'Level ' + l : 'Body text'; }, onChange: (v) => L.outline && L.outline.setLevel(/body/i.test(v) ? 0 : parseInt(v.replace(/\D/g, ''), 10) || 0) }), 'demote', 'demoteBody', '|', 'moveUp', 'moveDown', 'expand', 'collapse',
-        ui.combo({ id: 'tb-olshow', width: 96, tip: 'Show Level', options: () => ['Show All Levels', 'Show Level 1', 'Show Level 2', 'Show Level 3', 'Show Level 4', 'Show Level 5', 'Show Level 6', 'Show Level 7', 'Show Level 8', 'Show Level 9'], value: () => (L.outline && L.outline.showLevel ? 'Show Level ' + L.outline.showLevel : 'Show All Levels'), onChange: (v) => L.outline && L.outline.show(/all/i.test(v) ? 0 : parseInt(v.replace(/\D/g, ''), 10)) }),
+      outlining: ui.toolbar('outlining', 'Outlining', ['promoteH1', 'promote', ui.combo({ id: 'tb-olvl', width: 74, tip: 'Outline Level', options: () => [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => L.t('Level {0}', n)).concat(L.t('Body text')), value: () => { const l = E.sel ? D.headingLevel(doc(), E.sel.f.p) : 0; return l ? L.t('Level {0}', l) : L.t('Body text'); }, onChange: (v) => L.outline && L.outline.setLevel(parseInt(v.replace(/\D/g, ''), 10) || 0) }), 'demote', 'demoteBody', '|', 'moveUp', 'moveDown', 'expand', 'collapse',
+        ui.combo({ id: 'tb-olshow', width: 96, tip: 'Show Level', options: () => [L.t('Show All Levels')].concat([1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => L.t('Show Level {0}', n))), value: () => (L.outline && L.outline.showLevel ? L.t('Show Level {0}', L.outline.showLevel) : L.t('Show All Levels')), onChange: (v) => L.outline && L.outline.show(parseInt(v.replace(/\D/g, ''), 10) || 0) }),
         'olFirstLine', 'olFormatting', '|', 'updateTOC', 'gotoTOC']),
       headerFooter: ui.toolbar('headerFooter', 'Header and Footer', [ui.tbDrop('Insert AutoText', null, (r) => ui.openMenu(L.autocorrect ? L.autocorrect.hfAutoText() : [], r), 'Insert AutoText'), '|', 'hfPageNum', 'hfNumPages', 'hfFormatPageNum', 'hfDate', 'hfTime', '|', 'pageSetup', 'hfShowText', 'hfLinkPrev', '|', 'hfSwitch', 'hfPrev', 'hfNext', '|', ui.tbButton('hfClose', { label: 'Close' })]),
       mailMerge: ui.toolbar('mailMerge', 'Mail Merge', ['mmMainDoc', 'mmOpenSource', 'mmRecipients', '|', 'mmAddress', 'mmGreeting', 'mmInsertField', '|', 'mmViewData', 'mmFirst', 'mmPrev', ui.combo({ id: 'tb-mmrec', width: 34, tip: 'Go to Record', options: () => [], value: () => String(L.mailmerge ? L.mailmerge.rec + 1 : 1), onChange: (v) => L.mailmerge && L.mailmerge.go(parseInt(v, 10) - 1) }), 'mmNext', 'mmLast', '|', 'mmMergeNew', 'mmMergePrint']),
-      wordart: ui.toolbar('wordart', 'WordArt', ['insertWordArt', ui.tbButton('wordartEdit', { label: 'Edit Text...' }), 'wordartGallery', 'formatObject', ui.tbDrop('', 'waShape', (r) => ui.openMenu(L.drawing.WARPS.map(([k, n]) => ({ label: n, run: () => L.drawing.modifySelected('WordArt Shape', (it) => { it.warp = k; }) })), r), 'WordArt Shape'), ui.tbDrop('', 'textWrap', (r) => A.wrapMenu(r), 'Text Wrapping')]),
+      wordart: ui.toolbar('wordart', 'LettersArt', ['insertWordArt', ui.tbButton('wordartEdit', { label: 'Edit Text...' }), 'wordartGallery', 'formatObject', ui.tbDrop('', 'waShape', (r) => ui.openMenu(L.drawing.WARPS.map(([k, n]) => ({ label: n, run: () => L.drawing.modifySelected('LettersArt Shape', (it) => { it.warp = k; }) })), r), 'LettersArt Shape'), ui.tbDrop('', 'textWrap', (r) => A.wrapMenu(r), 'Text Wrapping')]),
     };
     const row1 = h('div', { class: 'tb-row' }, A.toolbarsEl.standard);
     const row2 = h('div', { class: 'tb-row' }, A.toolbarsEl.formatting);
@@ -307,7 +325,27 @@
     for (const k in doc().styles) { const r = doc().styles[k].rPr; if (r && r.font) docFonts.push(r.font); }
     return L.fontSections({ major: doc().theme?.major, minor: doc().theme?.minor, extra: docFonts });
   };
-  A.setFont = (v) => { if (!v) return; L.addRecentFont(v); E.formatRun({ font: v }, 'Font'); E.refocus(); };
+  /* as in Word, an East Asian font is for all the text (its letters too), a Western font for the Latin text only */
+  A.setFont = (v) => { if (!v) return; L.addRecentFont(v); E.formatRun(L.fontIsEA(v) ? { font: v, fontEA: v } : { font: v }, L.N('Font')); E.refocus(); };
+  /** whether East Asian text is typed here, as Word tells by an East Asian keyboard: the selection has East Asian
+      characters, or the character before the insertion point is one (after it, at a paragraph's start); with no text
+      there, the UI's language stands in for the keyboard, which the page can't see (Japanese, Korean, Chinese: the
+      languages whose new documents have an East Asian language, common/locales.js). The Font box and the status bar
+      then show the East Asian font and language. */
+  A.typingEA = function () {
+    if (!E.sel) return false;
+    let seen = false;
+    const look = (t) => { t = t.replace(/[\s\ufffc]/g, ''); if (t) seen = true; return L.hasEAText(t); };
+    if (E.collapsed()) {
+      const { p, o } = E.sel.f;
+      if (look(D.ptext(p, Math.max(0, o - 1), o) || D.ptext(p, o, o + 1))) return true;
+    } else {
+      const [a, b] = E.range();
+      for (const p of D.parasBetween(doc(), a.p, b.p)) if (look(D.ptext(p, p === a.p ? a.o : 0, p === b.p ? b.o : undefined))) return true;
+    }
+    const loc = !seen && L.locale && L.locale.get();
+    return !!(loc && loc.rPr && loc.rPr.langEA);
+  };
   A.setFontSize = (v) => { if (!(v > 0)) return; v = L.clamp(Math.round(v * 2) / 2, 1, 1638); E.formatRun({ sz: v }, 'Font Size'); E.refocus(); };
   function styleState() {
     const d = doc();
@@ -355,7 +393,7 @@
       return;
     }
     const [a, b] = E.range();
-    E.edit('Style', () => { O.applyStyle(a, b, s.id); return E.sel; });
+    E.edit(L.N('Style'), () => { O.applyStyle(a, b, s.id); return E.sel; });
     E.refocus();
   };
   A.historyMenu = function (r, kind) {
@@ -363,10 +401,11 @@
     if (!list.length) return;
     ui.openMenu([{ custom: (close) => {
       const el = h('div', { class: 'style-list', style: 'max-height:260px;overflow:auto;min-width:180px' });
-      const lbl = h('div', { class: 'tgp-label', text: `${kind === 'undo' ? 'Undo' : 'Redo'} 1 Action` });
+      const actions = (n) => (kind === 'undo' ? (n === 1 ? L.t('Undo {0} Action', n) : L.t('Undo {0} Actions', n)) : n === 1 ? L.t('Redo {0} Action', n) : L.t('Redo {0} Actions', n));
+      const lbl = h('div', { class: 'tgp-label', text: actions(1) });
       const btns = list.slice(0, 40).map((label, i) => {
         const b = h('button', { type: 'button', text: label });
-        b.addEventListener('pointerenter', () => { btns.forEach((x, k) => { x.style.background = k <= i ? '#316ac5' : ''; x.style.color = k <= i ? '#fff' : ''; }); lbl.textContent = `${kind === 'undo' ? 'Undo' : 'Redo'} ${i + 1} Action${i ? 's' : ''}`; });
+        b.addEventListener('pointerenter', () => { btns.forEach((x, k) => { x.style.background = k <= i ? '#316ac5' : ''; x.style.color = k <= i ? '#fff' : ''; }); lbl.textContent = actions(i + 1); });
         b.addEventListener('click', () => { close(); for (let k = 0; k <= i; k++) ui.exec(kind); });
         el.appendChild(b);
         return b;
@@ -396,7 +435,7 @@
   };
   const lineSVG = (w, dash, extra) => `<svg width="90" height="14" viewBox="0 0 90 14"><path d="M2 7h86" stroke="#000" stroke-width="${w}" ${dash ? `stroke-dasharray="${dash}"` : ''} fill="none"/>${extra || ''}</svg>`;
   A.WEIGHTS = [0.25, 0.5, 0.75, 1, 1.5, 2.25, 3, 4.5, 6];
-  A.objLineWeightMenu = (r) => ui.openMenu([{ custom: (close) => listPanel(A.WEIGHTS.map((w) => ({ html: lineSVG(Math.max(0.5, w * 1.33)), label: w + ' pt', run: () => L.drawing.modifySelected('Line Style', (it) => { if (it.t === 'img') it.border = Object.assign({ val: 'single', color: '000000' }, it.border || {}, { sz: w }); else it.line = Object.assign({ c: '#000000', dash: 'solid' }, it.line && it.line.t !== 'none' ? it.line : {}, { w }); }) })).concat([{ label: 'More Lines...', run: () => ui.exec('formatObject') }]), close) }], r);
+  A.objLineWeightMenu = (r) => ui.openMenu([{ custom: (close) => listPanel(A.WEIGHTS.map((w) => ({ html: lineSVG(Math.max(0.5, w * 1.33)), label: L.t('{0} pt', w), run: () => L.drawing.modifySelected('Line Style', (it) => { if (it.t === 'img') it.border = Object.assign({ val: 'single', color: '000000' }, it.border || {}, { sz: w }); else it.line = Object.assign({ c: '#000000', dash: 'solid' }, it.line && it.line.t !== 'none' ? it.line : {}, { w }); }) })).concat([{ label: 'More Lines...', run: () => ui.exec('formatObject') }]), close) }], r);
   A.objDashMenu = (r) => ui.openMenu([{ custom: (close) => listPanel([['solid', null], ['sysDot', '1 1'], ['sysDash', '3 1'], ['dash', '4 3'], ['dashDot', '4 3 1 3'], ['lgDash', '8 3'], ['lgDashDot', '8 3 1 3'], ['lgDashDotDot', '8 3 1 3 1 3']].map(([k, da]) => ({ html: lineSVG(2, da), run: () => L.drawing.modifySelected('Dash Style', (it) => { if (it.line && it.line.t !== 'none') it.line = Object.assign({}, it.line, { dash: k }); }) })), close) }], r);
   A.objArrowMenu = (r) => {
     const P = [[null, null], [null, 'triangle'], ['triangle', null], ['triangle', 'triangle'], [null, 'arrow'], [null, 'stealth'], [null, 'oval'], [null, 'diamond'], ['oval', 'oval']];
@@ -405,12 +444,12 @@
   };
   A.objShadowMenu = (r) => {
     const S = [null, [3, 3], [-3, 3], [3, -3], [-3, -3], [0, 4], [4, 0], [6, 6]];
-    ui.openMenu([{ custom: (close) => { const g = h('div', { class: 'shape-grid', style: 'grid-template-columns:repeat(4,30px)' }); S.forEach((s) => { const b = h('button', { type: 'button', style: 'width:30px;height:30px', 'aria-label': s ? 'Shadow Style' : 'No Shadow', html: s ? `<svg width="24" height="24"><rect x="${6 + s[0] / 1.5}" y="${6 + s[1] / 1.5}" width="12" height="12" fill="#888"/><rect x="6" y="6" width="12" height="12" fill="#fff" stroke="#000"/></svg>` : '<svg width="24" height="24"><rect x="6" y="6" width="12" height="12" fill="#fff" stroke="#000"/><path d="M3 21L21 3" stroke="#d33"/></svg>' }); b.addEventListener('click', () => { close(); L.drawing.modifySelected('Shadow', (it) => { it.shadow = s ? { c: '#000000', a: 0.5, dx: s[0], dy: s[1], blur: 0 } : undefined; }); }); g.appendChild(b); }); return g; } }], r);
+    ui.openMenu([{ custom: (close) => { const g = h('div', { class: 'shape-grid', style: 'grid-template-columns:repeat(4,30px)' }); S.forEach((s) => { const b = h('button', { type: 'button', style: 'width:30px;height:30px', 'aria-label': s ? 'Shadow Style' : 'No Shadow', html: s ? `<svg width="24" height="24"><rect x="${6 + s[0] / 1.5}" y="${6 + s[1] / 1.5}" width="12" height="12" fill="#888"/><rect x="6" y="6" width="12" height="12" fill="#fff" stroke="#000"/></svg>` : '<svg width="24" height="24"><rect x="6" y="6" width="12" height="12" fill="#fff" stroke="#000"/><path d="M3 21L21 3" stroke="#d33"/></svg>' }); b.addEventListener('click', () => { close(); L.drawing.modifySelected(L.N('Shadow'), (it) => { it.shadow = s ? { c: '#000000', a: 0.5, dx: s[0], dy: s[1], blur: 0 } : undefined; }); }); g.appendChild(b); }); return g; } }], r);
   };
   A.borderStyleMenu = (r) => ui.openMenu([{ custom: (close) => listPanel([['single', null], ['dotted', '1 2'], ['dashed', '4 3'], ['dotDash', '4 3 1 3'], ['double', null], ['thick', null], ['triple', null], ['wave', null], ['threeDEmboss', null]].map(([k, da]) => ({ html: k === 'double' ? '<svg width="90" height="14"><path d="M2 5h86M2 9h86" stroke="#000"/></svg>' : k === 'triple' ? '<svg width="90" height="14"><path d="M2 3h86M2 7h86M2 11h86" stroke="#000"/></svg>' : k === 'wave' ? '<svg width="90" height="14"><path d="M2 7q5-5 10 0t10 0t10 0t10 0t10 0t10 0t10 0t10 0t6 0" fill="none" stroke="#000"/></svg>' : lineSVG(k === 'thick' ? 3 : 1, da), run: () => { A.borderPen.val = k; } })).concat([{ label: 'No Border', run: () => { A.borderPen.val = 'nil'; } }]), close) }], r);
-  A.borderWeightMenu = (r) => ui.openMenu([{ custom: (close) => listPanel([0.25, 0.5, 0.75, 1, 1.5, 2.25, 3, 4.5, 6].map((w) => ({ html: lineSVG(Math.max(0.5, w * 1.33)), label: w + ' pt', run: () => { A.borderPen.sz = w; } })), close) }], r);
+  A.borderWeightMenu = (r) => ui.openMenu([{ custom: (close) => listPanel([0.25, 0.5, 0.75, 1, 1.5, 2.25, 3, 4.5, 6].map((w) => ({ html: lineSVG(Math.max(0.5, w * 1.33)), label: L.t('{0} pt', w), run: () => { A.borderPen.sz = w; } })), close) }], r);
   A.picMode = (m) => L.drawing.modifySelected('Picture Color', (it) => { it.gray = m === 'gray' || undefined; it.bw = m === 'bw' || undefined; it.washout = m === 'washout' || undefined; });
-  A.picAdjust = (k, d) => L.drawing.modifySelected(k === 'bright' ? 'Brightness' : 'Contrast', (it) => { it[k] = L.clamp(L.round((it[k] || 0) + d, 2), -1, 1) || undefined; });
+  A.picAdjust = (k, d) => L.drawing.modifySelected(k === 'bright' ? L.N('Brightness') : L.N('Contrast'), (it) => { it[k] = L.clamp(L.round((it[k] || 0) + d, 2), -1, 1) || undefined; });
 
   /* ================= status bar ================= */
   let statusTimer = 0;
@@ -418,12 +457,12 @@
     const sb = L.$('#statusbar');
     const cell = (cls, tip) => h('div', { class: 'sb-cell ' + (cls || ''), 'data-tip': tip || null });
     A.sb = {
-      page: cell('', 'Page'), sec: cell('', 'Section'), pages: cell('', 'Page / pages'), at: cell('', 'Vertical position'), ln: cell('', 'Line'), col: cell('', 'Column'),
+      page: cell('', L.N('Page')), sec: cell('', L.N('Section')), pages: cell('', 'Page / pages'), at: cell('', 'Vertical position'), ln: cell('', L.N('Line|position')), col: cell('', L.N('Column|position')),
       rec: cell('flag', 'Record macro'), trk: cell('flag act', 'Track Changes (double-click to toggle)'), ext: cell('flag act', 'Extend selection'), ovr: cell('flag act', 'Overtype (double-click to toggle)'),
-      lang: cell('act', 'Language'), spell: cell('act sb-spell', 'Spelling and grammar status'), msg: cell('grow'),
+      lang: cell('act', L.N('Language')), spell: cell('act sb-spell', 'Spelling and grammar status'), msg: cell('grow'),
     };
-    A.sb.rec.textContent = 'REC'; A.sb.trk.textContent = 'TRK'; A.sb.ext.textContent = 'EXT'; A.sb.ovr.textContent = 'OVR';
-    A.sb.lang.textContent = 'English (U.S.)';
+    A.sb.rec.textContent = L.t('REC'); A.sb.trk.textContent = L.t('TRK'); A.sb.ext.textContent = L.t('EXT'); A.sb.ovr.textContent = L.t('OVR');
+    A.sb.lang.textContent = A.langName('en-US');
     A.sb.spell.innerHTML = '<svg width="18" height="14" viewBox="0 0 18 14"><rect x="1.5" y="1.5" width="11" height="11" fill="#fff" stroke="#556"/><path d="M3 4h7M3 6.5h7M3 9h5" stroke="#889"/><path d="M10 9l2.5 3 4.5-7" fill="none" stroke="#2f9a3a" stroke-width="1.6"/></svg>';
     A.sb.trk.addEventListener('dblclick', () => ui.exec('trackChanges'));
     A.sb.ovr.addEventListener('dblclick', () => { E.overtype = !E.overtype; A.updateStatus(); });
@@ -439,7 +478,7 @@
     const spellIcon = () => {
       const on = L.spell && !L.spell.hidden && A.opts.spell !== false;
       A.sb.spell.classList.toggle('off', !on);
-      A.sb.spell.dataset.tip = on ? 'Spelling and grammar are checked as you type. Click to stop.' : 'Spelling and grammar are not checked as you type. Click to check this document.';
+      A.sb.spell.dataset.tip = on ? L.t('Spelling and grammar are checked as you type. Click to stop.') : L.t('Spelling and grammar are not checked as you type. Click to check this document.');
     };
     L.bus.on('proof-state', spellIcon);
     L.bus.on('doc-loaded', spellIcon);
@@ -447,7 +486,7 @@
     A.sb.page.addEventListener('dblclick', () => ui.exec('goTo'));
     sb.append(A.sb.page, A.sb.sec, A.sb.pages, A.sb.at, A.sb.ln, A.sb.col, A.sb.rec, A.sb.trk, A.sb.ext, A.sb.ovr, A.sb.lang, A.sb.spell, A.sb.msg);
   }
-  A.status = (msg, ms) => { if (!A.sb) return; A.sb.msg.textContent = msg; clearTimeout(statusTimer); statusTimer = setTimeout(() => { A.sb.msg.textContent = ''; }, ms || 4000); };
+  A.status = (msg, ms) => { if (!A.sb) return; A.sb.msg.textContent = L.t(msg); clearTimeout(statusTimer); statusTimer = setTimeout(() => { A.sb.msg.textContent = ''; }, ms || 4000); };
   A.updateStatus = L.debounce(function () {
     if (!A.sb) return;
     const d = doc();
@@ -460,31 +499,32 @@
     const pi = LY.pageOf(sel.f);
     const pg = pi >= 0 ? LY.pages[pi] : null;
     if (pg) {
-      A.sb.page.textContent = 'Page ' + D.fmtNum(pg.numVal, pg.numFmt);
-      A.sb.sec.textContent = 'Sec ' + (pg.si + 1);
+      A.sb.page.textContent = L.t('Page {0}', D.fmtNum(pg.numVal, pg.numFmt));
+      A.sb.sec.textContent = L.t('Sec {0}', pg.si + 1);
       A.sb.pages.textContent = `${pi + 1}/${n}`;
       const r = E.caretRect();
       if (r) {
         const pr = pg.el.getBoundingClientRect();
         const atPt = (r.top - pr.top) / LY.zoom / D.PX;
-        A.sb.at.textContent = 'At ' + D.fmtLen(atPt);
+        A.sb.at.textContent = L.t('At {0}', D.fmtLen(atPt));
         /* line number on the page and column within the line */
         const lc = A.lineCol(sel.f, pg);
-        A.sb.ln.textContent = 'Ln ' + lc.ln;
-        A.sb.col.textContent = 'Col ' + lc.col;
+        A.sb.ln.textContent = L.t('Ln {0}', lc.ln);
+        A.sb.col.textContent = L.t('Col {0}', lc.col);
       }
     } else {
-      A.sb.page.textContent = LY.view === 'print' ? '' : 'Page 1';
-      A.sb.sec.textContent = 'Sec 1';
+      A.sb.page.textContent = LY.view === 'print' ? '' : L.t('Page {0}', 1);
+      A.sb.sec.textContent = L.t('Sec {0}', 1);
       A.sb.pages.textContent = LY.view === 'print' ? '' : '';
-      A.sb.at.textContent = ''; A.sb.ln.textContent = ''; A.sb.col.textContent = 'Col ' + (sel.f.o + 1);
+      A.sb.at.textContent = ''; A.sb.ln.textContent = ''; A.sb.col.textContent = L.t('Col {0}', sel.f.o + 1);
     }
-    const r = E.curRun();
-    const lang = r.lang || (d.defaults.rPr && d.defaults.rPr.lang) || 'en-US';
+    const r = E.curRun(), def = d.defaults.rPr || {};
+    const lang = (A.typingEA() && (r.langEA || def.langEA)) || r.lang || def.lang || 'en-US';
     A.sb.lang.textContent = A.langName(lang);
   }, 60);
-  A.LANGS = [['en-US', 'English (U.S.)'], ['en-GB', 'English (U.K.)'], ['en-AU', 'English (Australia)'], ['en-CA', 'English (Canada)'], ['fr-FR', 'French (France)'], ['fr-CA', 'French (Canada)'], ['de-DE', 'German (Germany)'], ['es-ES', 'Spanish (Spain)'], ['es-MX', 'Spanish (Mexico)'], ['it-IT', 'Italian (Italy)'], ['pt-BR', 'Portuguese (Brazil)'], ['pt-PT', 'Portuguese (Portugal)'], ['nl-NL', 'Dutch (Netherlands)'], ['sv-SE', 'Swedish'], ['da-DK', 'Danish'], ['nb-NO', 'Norwegian (Bokmål)'], ['fi-FI', 'Finnish'], ['pl-PL', 'Polish'], ['ru-RU', 'Russian'], ['ja-JP', 'Japanese'], ['zh-CN', 'Chinese (PRC)'], ['ko-KR', 'Korean']];
-  A.langName = (code) => { const hit = A.LANGS.find((x) => x[0].toLowerCase() === String(code).toLowerCase()); return hit ? hit[1] : code; };
+  /* [code, name]: the names are UI text, shown through L.t; A.langName gives the name as shown */
+  A.LANGS = [['en-US', L.N('English (U.S.)')], ['en-GB', L.N('English (U.K.)')], ['en-AU', L.N('English (Australia)')], ['en-CA', L.N('English (Canada)')], ['fr-FR', L.N('French (France)')], ['fr-CA', L.N('French (Canada)')], ['de-DE', L.N('German (Germany)')], ['es-ES', L.N('Spanish (Spain)')], ['es-MX', L.N('Spanish (Mexico)')], ['it-IT', L.N('Italian (Italy)')], ['pt-BR', L.N('Portuguese (Brazil)')], ['pt-PT', L.N('Portuguese (Portugal)')], ['nl-NL', L.N('Dutch (Netherlands)')], ['sv-SE', L.N('Swedish')], ['da-DK', L.N('Danish')], ['nb-NO', L.N('Norwegian (Bokmål)')], ['fi-FI', L.N('Finnish')], ['pl-PL', L.N('Polish')], ['ru-RU', L.N('Russian')], ['ja-JP', L.N('Japanese')], ['zh-CN', L.N('Chinese (Simp.)')], ['zh-HK', L.N('Chinese (Trad.)')], ['ko-KR', L.N('Korean')]];
+  A.langName = (code) => { const hit = A.LANGS.find((x) => x[0].toLowerCase() === String(code).toLowerCase()); return hit ? L.t(hit[1]) : code; };
   A.lineCol = function (pos, pg) {
     const frag = LY.fragFor(pos.p, pos.o);
     if (!frag) return { ln: 1, col: pos.o + 1 };
@@ -502,14 +542,13 @@
       for (const f of col0.querySelectorAll('.p')) {
         if (f === frag) break;
         if (f.compareDocumentPosition(frag) & Node.DOCUMENT_POSITION_FOLLOWING) {
-          const lh = parseFloat(getComputedStyle(f.firstChild).lineHeight) || 16;
-          ln += Math.max(1, Math.round((f.firstChild.offsetHeight) / lh));
+          ln += LY.lineCount(f);
         }
       }
     }
     return { ln, col };
   };
-  A.updateTitle = () => { document.title = `${A.fileName} - Quire 2003`; };
+  A.updateTitle = () => { document.title = `${L.file.titled(A.fileName)} - Quire`; };
 
   /* ================= rulers ================= */
   A.updateRulers = function () {
@@ -525,6 +564,7 @@
 
   /* ================= views ================= */
   A.setView = function (v) {
+    ui.dragCancel();   /* a view switch ends a drag in progress */
     const app = L.$('#app');
     if (A.view === 'preview' && v !== 'preview' && L.panes && L.panes.preview) L.panes.preview.exit();
     if (A.view === 'reading' && v !== 'reading') { app.classList.remove('reading'); LY.setMultiPage(0); }
@@ -574,6 +614,13 @@
     if (id === 'wordart') return !!(E.objSel && E.objSel.it && E.objSel.it.wordart);
     return false;
   }
+  /** what is selected, for the ribbon's contextual tabs: 'table', 'picture', 'shape', 'headerFooter', 'outlining' */
+  A.inContext = (k) => {
+    const it = E.objSel && E.objSel.it;
+    if (k === 'table') return !!(L.tables && L.tables.inTable());
+    if (k === 'shape') return !!(it && (it.t === 'shape' || it.t === 'group' || it.t === 'text' || it.tb || it.wordart));
+    return ctxToolbar(k);
+  };
   A.toggleToolbar = (id) => { const v = A.opts.toolbars[id]; A.opts.toolbars[id] = A.tbShown(id) ? (v === 'auto' || v === true ? false : false) : true; if (A.opts.toolbars[id] === false && ['reviewing', 'picture', 'outlining', 'headerFooter', 'wordart'].includes(id) && v === true) A.opts.toolbars[id] = 'auto'; A.saveOpts(); A.updateToolbars(); };
   A.updateToolbars = function () {
     if (!A.toolbarsEl) return;
@@ -623,12 +670,12 @@
   const pristine = () => !!D.doc && !D.doc.dirty && !A.saved && !D.canUndo() && /^Document\d+$/.test(A.fileName);
   A.switchTo = function (i) {
     if (i === A.cur || !A.docs[i]) return;
+    ui.dragCancel();
     stash();
     const w = A.docs[i];
     A.cur = i;
     if (LY.hfEdit) { LY.hfEdit = null; LY.root.classList.remove('hfmode'); }
-    L.drawing.clearSelection();
-    E.objSel = null;
+    E.clearObjSel();
     D.doc = w.doc;
     D.setHistState(w.hist);
     A.fileName = w.fileName; A.saved = w.saved; A.fileType = w.fileType; A.hasRevisions = w.hasRevisions;
@@ -641,13 +688,15 @@
     ui.refresh();
     E.refocus();
   };
-  A.windowItems = () => A.docs.map((w, i) => ({ label: `&${i + 1} ${(i === A.cur ? A.fileName : w.fileName).replace(/&/g, '&&')}`, checked: () => i === A.cur, run: () => A.switchTo(i) }));
+  A.windowItems = () => (window.VO && VO.oneDocument ? VO.windowItems() : A.docs.map((w, i) => ({ label: `&${i + 1} ${(i === A.cur ? A.fileName : w.fileName).replace(/&/g, '&&')}`, raw: true, checked: () => i === A.cur, run: () => A.switchTo(i) })));
   A.loadDoc = function (d, name, opts) {
     opts = opts || {};
+    /* the desktop app: one document per window, so a new one goes to a window of its own */
+    if (opts.newWindow && A.cur >= 0 && window.VO && VO.oneDocument) { A.toWindow(d, name); return; }
+    ui.dragCancel();
     if (opts.newWindow || A.cur < 0) { stash(); A.docs.push(null); A.cur = A.docs.length - 1; }
     if (LY.hfEdit) { LY.hfEdit = null; LY.root.classList.remove('hfmode'); }
-    L.drawing.clearSelection();
-    E.objSel = null;
+    E.clearObjSel();
     D.doc = d;
     D.resetHistory();
     d.dirty = false;
@@ -671,15 +720,37 @@
   };
   async function confirmDiscard() {
     if (!doc() || !doc().dirty) return true;
-    const r = await ui.msg(`Do you want to save the changes to ${A.fileName}?`, { icon: 'warn', buttons: ['&Yes', '&No', 'Cancel'] });
+    const r = await ui.msg(L.t('Do you want to save the changes to {0}?', A.fileName), { icon: 'warn', buttons: ['&Yes', '&No', 'Cancel'] });
     if (r === 0) return await A.save() === 'saved';
     if (r === 1 && window.VO) VO.discard(doc());   // its unsaved version goes too
     return r === 1;
   }
   A.confirmDiscard = confirmDiscard;
+  /** a document made here (New with content, mail merge's letters) in a window of its own, as a .docx (the desktop
+   *  app's one document per window) */
+  A.toWindow = async function (d, name) {
+    const keep = D.doc;
+    ui.busy(true, 'Saving...');
+    try {
+      D.doc = d;   // the writer looks up list numbering in D.doc
+      const blob = await L.docx.write(d, { format: 'docx' });
+      D.doc = keep;
+      ui.busy(false);
+      await VO.made(blob, name + '.docx');
+    } catch (e) {
+      D.doc = keep;
+      ui.busy(false);
+      console.error(e);
+      ui.msg(String(e && e.message || e), { icon: 'error' });
+    }
+  };
+  /** a blank document as the Office of the UI's language makes it (common/locales.js) */
+  const blank = () => D.applyLocale(D.newDoc(), L.locale && L.locale.get());
   A.newDocument = async function (opts) {
+    /* the desktop app: a blank document in a window of its own (one with content goes through loadDoc) */
+    if (!opts && !pristine() && window.VO && VO.oneDocument) return VO.go(VO.url('quire', { new: true })).catch((e) => ui.msg(String(e), { icon: 'error' }));
     A.untitled++;
-    const d = D.newDoc(opts && opts.modern ? { modern: true } : {});
+    const d = opts && opts.modern ? D.newDoc({ modern: true }) : blank();
     if (opts && opts.build) opts.build(d);
     /* a new document opens in its own window, as in Word; an untouched blank one is simply replaced */
     A.loadDoc(d, 'Document' + A.untitled, { newWindow: !pristine() });
@@ -687,7 +758,8 @@
   /** close the current document (asking to save); false when the user cancels */
   A.closeDocument = async function () {
     if (!(await confirmDiscard())) return false;
-    if (A.docs.length <= 1) { A.docs = []; A.cur = -1; A.untitled++; A.loadDoc(D.newDoc(), 'Document' + A.untitled); return true; }
+    if (window.VO && VO.oneDocument) { VO.exit(); return true; }   // its window closes
+    if (A.docs.length <= 1) { A.docs = []; A.cur = -1; A.untitled++; A.loadDoc(blank(), 'Document' + A.untitled); return true; }
     const i = A.cur;
     A.docs.splice(i, 1);
     A.cur = -1; /* nothing to stash: the closed window is gone */
@@ -695,14 +767,16 @@
     return true;
   };
   A.openDialog = async function () {
+    if (window.VO && VO.oneDocument) return VO.openDialog();
     const files = await L.pickFiles('.docx,.docm,.dotx,.dotm,.doc,.txt,.htm,.html,.rtf,.xml,.md,.markdown,.zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     if (files[0]) A.openFile(files[0]);
   };
   A.openFiles = (files) => { const f = files.find((x) => /\.(docx|docm|dotx|dotm|doc|txt|html?|rtf|md|markdown|zip)$/i.test(x.name)); if (f) A.openFile(f); };
   A.openFile = async function (file) {
+    if (window.VO && await VO.elsewhere(file)) return;   // the desktop app: a window of its own
     const reuse = pristine();
     const name = file.name.replace(/\.(docx|docm|dotx|dotm|doc|txt|html?|rtf|xml|md|markdown|mdown|mkd|zip)$/i, '');
-    ui.busy(true, `Opening ${file.name}...`);
+    ui.busy(true, L.t('Opening {0}...', file.name));
     try {
       let d, warnings = [], type = 'docx';
       if (/\.txt$/i.test(file.name)) d = A.docFromText(await L.readAsText(file));
@@ -721,14 +795,14 @@
       if (d.isTemplate) A.status('Opened a template. Save keeps its template format.');
       if (d.wasEncrypted) A.status('This document is protected with a password to open; saving keeps the protection (Tools ▸ Options ▸ Security).');
       if (warnings.length) ui.msg(warnings.join('\n'), { icon: 'warn' });
-      if (type === 'md') { const n = L.mdio.missingPictures(d); if (n) A.status(`${n === 1 ? 'A picture is' : n + ' pictures are'} not in the .md file and show${n === 1 ? 's' : ''} as a box. Open a .zip holding the file and its pictures to see them.`); }
-      if (d.settings.protect && d.settings.protect.on) A.status('This document is protected: ' + ({ readOnly: 'no changes (read only)', comments: 'comments only', tracked: 'tracked changes', forms: 'filling in forms' }[d.settings.protect.kind] || 'restricted'));
+      if (type === 'md') { const n = L.mdio.missingPictures(d); if (n) A.status(n === 1 ? L.t('A picture is not in the .md file and shows as a box. Open a .zip holding the file and its pictures to see them.') : L.t('{0} pictures are not in the .md file and show as a box. Open a .zip holding the file and its pictures to see them.', n)); }
+      if (d.settings.protect && d.settings.protect.on) A.status({ readOnly: L.N('This document is protected: no changes (read only)'), comments: L.N('This document is protected: comments only'), tracked: L.N('This document is protected: tracked changes'), forms: L.N('This document is protected: filling in forms') }[d.settings.protect.kind] || L.N('This document is protected: restricted'));
     } catch (e) {
       ui.busy(false);
       console.error(e);
       if (e && e.code === 'cancel') return;
       if (e && e.code === 'ole') ui.msg(e.message, { icon: 'warn' });
-      else ui.msg(`${L.APP} can't open ${file.name}. ${e && e.message ? e.message : ''}`, { icon: 'error' });
+      else ui.msg(L.t("{0} can't open {1}. {2}", L.APP, file.name, e && e.message ? e.message : ''), { icon: 'error' });
     }
   };
   /** read .docx bytes; a password-protected file asks for its password (or takes opts.password) */
@@ -743,7 +817,7 @@
       let plain;
       try { plain = await L.officeCrypto.decrypt(e.bytes, pass); }
       catch (err) {
-        const b = new Error(err && err.code === 'badpass' ? `The password is incorrect. ${L.APP} cannot open the document.` : err && err.message === 'unsupported' ? `This document is encrypted in a way ${L.APP} cannot read.` : String(err && err.message || err));
+        const b = new Error(err && err.code === 'badpass' ? L.t('The password is incorrect. {0} cannot open the document.', L.APP) : err && err.message === 'unsupported' ? L.t('This document is encrypted in a way {0} cannot read.', L.APP) : String(err && err.message || err));
         b.code = 'ole';
         b.badPassword = !!(err && err.code === 'badpass');
         throw b;
@@ -772,11 +846,24 @@
     if (!d.main.blocks.length) d.main.blocks.push(D.para());
     return d;
   };
+  /* what Quire saves, for the desktop app's Save dialog (L.file); the document types are saves, the rest exports */
+  L.file.types = [{ id: 'docx', label: L.N('Word Document (*.docx)'), ext: ['docx'] }, { id: 'docm', label: L.N('Word Macro-Enabled Document (*.docm)'), ext: ['docm'] },
+    { id: 'dotx', label: L.N('Word Template (*.dotx)'), ext: ['dotx'] }, { id: 'dotm', label: L.N('Word Macro-Enabled Template (*.dotm)'), ext: ['dotm'] },
+    { id: 'html', label: L.N('Single File Web Page (*.htm)'), ext: ['htm', 'html'] }, { id: 'rtf', label: L.N('Rich Text Format (*.rtf)'), ext: ['rtf'] },
+    { id: 'txt', label: L.N('Plain Text (*.txt)'), ext: ['txt'] }, { id: 'md', label: L.N('Markdown (*.md)'), ext: ['md', 'markdown'] },
+    { id: 'mdzip', label: L.N('Markdown with pictures (*.zip)'), ext: ['zip'] }, { id: 'pdf', label: L.N('PDF (*.pdf)'), ext: ['pdf'] }];
+  const DOC_TYPES = ['docx', 'docm', 'dotx', 'dotm', 'md', 'mdzip'];
+  /** Save: the document's own file (the desktop app: in place, when it has one it may change), else Save As */
   A.save = async function () {
-    if (!A.saved) return A.saveAs();
-    return A.exportAs(A.fileType || 'docx', A.fileName);
+    if (!A.saved || (L.file.native() && !L.file.inPlace())) return A.saveAs();
+    return A.exportAs(A.fileType || 'docx', A.fileName, L.file.native() ? 'save' : undefined);
   };
   A.saveAs = function () {
+    /* the desktop app: the system's Save dialog picks the name and type, then the document is written there */
+    if (L.file.native()) return (async () => {
+      const c = await L.file.choose('saveAs', DOC_TYPES.includes(A.fileType) ? A.fileType : 'docx', A.fileName);
+      return c ? A.exportAs(c.type, c.name, 'chosen') : 'declined';
+    })();
     if (!L.dlg?.saveAs) return A.exportAs('docx', A.fileName);
     return new Promise(resolve => {
       let writing = false;
@@ -789,9 +876,13 @@
     const st = D.stats(D.allParas(d));
     return { pages: LY.pages.length || 1, words: st.words, chars: st.chars, charsNoSp: st.charsNoSp, paras: st.paras, lines: Math.max(st.paras, Math.round(st.chars / 70)) };
   };
-  A.exportAs = async function (type, name) {
+  /** writes the document as `type`: a download (web), or in the desktop app (`how`) its own file ('save') or what the
+   *  Save dialog picked ('chosen'); without `how` there, an export that asks where. A document type saved where it
+   *  becomes the document's file renames the document and clears its changes */
+  A.exportAs = async function (type, name, how) {
     name = name || A.fileName;
     const d = doc();
+    const before = window.VO ? VO.changeCount(d) : 0;
     ui.busy(true, 'Saving...');
     try {
       if (L.fields && L.fields.beforeSave) L.fields.beforeSave();
@@ -813,8 +904,13 @@
         if (L.mdio.newPictures(d)) {
           ui.busy(false);
           const r = await ui.msg('This document has pictures that a .md file cannot hold. Save it as Markdown with pictures (.zip), which holds the .md file and its pictures?', { icon: 'warn', buttons: ['Save as .&zip', 'Save .md &without them', 'Cancel'] });
-          if (r !== 0 && r !== 1) return;
-          if (r === 0) { type = ext = 'mdzip'; if (A.fileType === 'md') A.fileType = 'mdzip'; }
+          if (r !== 0 && r !== 1) { if (how === 'chosen') L.file.cancel(); return 'declined'; }
+          if (r === 0) {
+            type = ext = 'mdzip';
+            /* the desktop app: a .zip is another file, so the Save dialog asks again */
+            if (how) { const c = await L.file.choose('saveAs', 'mdzip', name, ['mdzip']); if (!c) return 'declined'; name = c.name; how = 'chosen'; }
+            else if (A.fileType === 'md') A.fileType = 'mdzip';
+          }
           ui.busy(true, 'Saving...');
         }
         if (type === 'md') blob = new Blob([L.mdio.write(d).text], { type: 'text/markdown;charset=utf-8' });
@@ -827,37 +923,45 @@
       ui.busy(false);
       if (!blob) return;
       const losses = L.opc.formats[type] ? await ui.compatibility(d, blob.dropped) : [];
-      if (losses === null) return 'declined';
-      const r = await L.saveFile(`${name}.${ext}`, blob);
+      if (losses === null) { if (how === 'chosen') L.file.cancel(); return 'declined'; }
+      const w = how ? await L.file.write(blob, how, { type, name: `${name}.${ext}` }) : { result: await L.saveFile(`${name}.${ext}`, blob) };
+      const r = w.result;
+      if (w.name) name = w.name.replace(/\.[^.]+$/, '');   // as the Save dialog left it
       if (r === 'saved') L.opc.acknowledge(d, losses);
-      if (r === 'saved' && ['docx', 'docm', 'dotx', 'dotm', 'md', 'mdzip'].includes(type)) { A.fileName = name; A.fileType = type; A.saved = true; A.updateTitle(); d.dirty = false; A.status(`Saved ${name}.${ext}`); ui.refresh(); if (window.VO) VO.saved(`${name}.${ext}`, blob, d); }
+      /* the document's own file now: on the web any save of a document type; the desktop app's Save, or a Save As it bound */
+      const own = !L.file.native() || how === 'save' || w.bound;
+      if (r === 'saved' && own && DOC_TYPES.includes(type)) { A.fileName = name; A.fileType = type; A.saved = true; A.updateTitle(); d.dirty = !!window.VO && VO.changeCount(d) !== before; A.status(L.t('Saved {0}', `${name}.${ext}`)); ui.refresh(); if (window.VO) VO.saved(`${name}.${ext}`, blob, d); }
       return r;
     } catch (e) {
       ui.busy(false);
       console.error(e);
-      ui.msg(`The file could not be saved: ${e.message || e}`, { icon: 'error' });
+      ui.msg(L.t('The file could not be saved: {0}', e.message || e), { icon: 'error' });
     }
   };
 
   /* ---------- PDF (print) ---------- */
+  /** the document's own rules (`.p …`, `table.tbl …`), for the page pictures of PDF export */
   function docCSS() {
     let css = '';
     for (const sheet of document.styleSheets) {
       let rules;
       try { rules = sheet.cssRules; } catch (e) { continue; }
-      for (const r of rules) if (r.selectorText && /(^|[\s,])\.(pg|p|pc|lbl|tb|img|shp|tbl|cf|nref|fdyn|ffcb|crop|pg-|frm|flt|anc|sym|raw|zw|fnsep|fnote|hbrk|sectmark|cmk|cmr|ins|del|hid|lnk|sgrp|tbx|geo|wa|chart)/.test(r.selectorText)) css += r.cssText + '\n';
+      for (const r of rules) if (r.selectorText && /(^|[\s,>]|\b(?:table|td))\.(pg|p|pc|lbl|tb|img|shp|tbl|cf|nref|fdyn|ffcb|crop|pg-|frm|flt|anc|sym|raw|zw|fnsep|fnote|hbrk|sectmark|cmk|cmr|ins|del|hid|lnk|sgrp|tbx|geo|wa|chart)/.test(r.selectorText)) css += r.cssText + '\n';
     }
     return css + '.crop{display:none}.pg-hdr,.pg-ftr{opacity:1!important}.cmk,.cmr{background:none!important}td.csel{background-image:none!important}.p.chg::before{display:none}';
   }
-  async function mediaDataMap() {
+  /** the pictures as data: URLs, by their blob: URLs; within: only those an element shows (a page's thumbnail) */
+  async function mediaDataMap(within) {
+    const html = within ? within.outerHTML : null;
     const map = new Map();
-    for (const [, m] of L.media.all()) { try { map.set(m.url, await L.blobToDataURL(m.view || m.blob)); } catch (e) { /* skip */ } }
+    for (const [, m] of L.media.all()) { if (html && !html.includes(m.url)) continue; try { map.set(m.url, await L.blobToDataURL(m.view || m.blob)); } catch (e) { /* skip */ } }
     return map;
   }
   A.rasterizePage = async function (pgEl, scale, css, map) {
     const w = pgEl.offsetWidth, hh = pgEl.offsetHeight;
     const clone = pgEl.cloneNode(true);
     clone.style.margin = '0'; clone.style.boxShadow = 'none';
+    for (const e of clone.querySelectorAll('.format-marks, .sectmark, .hbrk')) e.remove();
     for (const e of clone.querySelectorAll('[contenteditable]')) e.removeAttribute('contenteditable');
     let xhtml = new XMLSerializer().serializeToString(clone);
     for (const [u, dd] of map) xhtml = xhtml.split(u).join(dd);
@@ -882,9 +986,9 @@
     const sel = window.getSelection(); sel.removeAllRanges();
     let n = 0;
     for (const p of list) {
-      ui.busy(true, `Creating PDF... (page ${++n} of ${list.length})`);
+      ui.busy(true, L.t('Creating PDF... (page {0} of {1})', ++n, list.length));
       const c = await A.rasterizePage(p.el, 2.2, css, map);
-      const jpeg = new Uint8Array(await (await new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('This browser blocked the page image.'))), 'image/jpeg', 0.92))).arrayBuffer());
+      const jpeg = new Uint8Array(await (await new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error(L.t('This browser blocked the page image.')))), 'image/jpeg', 0.92))).arrayBuffer());
       pages.push({ jpeg, iw: c.width, ih: c.height, pw: p.sect.pgW, ph: p.sect.pgH });
     }
     if (prevView !== A.view || LY.view !== (prevView === 'reading' || prevView === 'preview' ? 'print' : prevView)) { LY.view = prevView === 'reading' || prevView === 'preview' ? 'print' : prevView; LY.render(); }
@@ -893,12 +997,21 @@
   };
   A.printPDF = async function () {
     try { const blob = await A.buildPDF(); ui.busy(false); await L.saveFile(`${A.fileName}.pdf`, blob); }
-    catch (e) { ui.busy(false); ui.msg('The PDF could not be created: ' + (e.message || e), { icon: 'error' }); }
+    catch (e) { ui.busy(false); ui.msg(L.t('The PDF could not be created: {0}', e.message || e), { icon: 'error' }); }
   };
 
   /* ================= headers & footers ================= */
-  A.editHeaderFooter = function (kind, pageIdx) {
+  /** the caret at a point of the page, when that point is in story (or, without a story, in the body) */
+  const caretAt = (ev, story) => {
+    const pos = ev && E.posAtPoint(ev.clientX, ev.clientY);
+    return pos && D.storyOf(doc(), pos.p) === (story || doc().main) ? pos : null;
+  };
+  /** open the header or footer of kind on page pageIdx (the caret's page); ev, the double-click that opened it:
+      the view stays, and the caret goes where it was double-clicked. The body's selection is kept for the way back. */
+  A.editHeaderFooter = function (kind, pageIdx, ev) {
     if (A.view !== 'print') A.setView('print');
+    if (!LY.hfEdit && E.sel && D.storyOf(doc(), E.sel.f.p) === doc().main) hfReturn = { a: E.sel.a, f: E.sel.f };
+    const top = LY.scroller.scrollTop;
     const pg = LY.pages[pageIdx == null ? Math.max(0, LY.pageOf(E.sel.f)) : pageIdx] || LY.pages[0];
     const d = doc();
     const secs = D.sections(d);
@@ -907,7 +1020,7 @@
     /* create the story when the section has none */
     let story = LY.hfFor(secs, pg.si, kind, ty);
     if (!story) {
-      E.edit(kind === 'hdr' ? 'Header' : 'Footer', () => {
+      E.edit(kind === 'hdr' ? L.N('Header') : L.N('Footer'), () => {
         const id = (kind === 'hdr' ? 'h' : 'f') + D.nid();
         D.touchKey(d, 'hf');
         d.hf[id] = { kind, id, blocks: [D.para([], { style: kind === 'hdr' ? 'Header' : 'Footer' })] };
@@ -927,40 +1040,61 @@
     LY.render();
     labelHF();
     D.reindex(d);
+    if (ev) LY.scroller.scrollTop = top;
     const p = story && story.paras && story.paras[0] ? story.paras[0] : story && D.firstPara(story.blocks);
-    if (p) E.setSel(D.pos(p, 0));
+    const at = caretAt(ev, story);
+    if (at) E.setSel(at); else if (p) E.setSel(D.pos(p, 0));
     A.updateToolbars();
     ui.refresh();
   };
+  const HF_NAMES = { first: [L.N('First Page Header'), L.N('First Page Footer')], even: [L.N('Even Page Header'), L.N('Even Page Footer')], odd: [L.N('Odd Page Header'), L.N('Odd Page Footer')], default: [L.N('Header'), L.N('Footer')] };
   function labelHF() {
     const d = doc();
     const secs = D.sections(d);
     for (const pg of LY.pages) {
       const multi = secs.length > 1;
-      const tyName = { first: 'First Page ', even: 'Even Page ', default: doc().settings.evenOdd ? 'Odd Page ' : '' }[pg.type] || '';
-      pg.hdr.dataset.label = `${tyName}Header${multi ? ' -Section ' + (pg.si + 1) + '-' : ''}`;
-      pg.ftr.dataset.label = `${tyName}Footer${multi ? ' -Section ' + (pg.si + 1) + '-' : ''}`;
+      const ty = pg.type === 'first' || pg.type === 'even' ? pg.type : doc().settings.evenOdd ? 'odd' : 'default';
+      const label = (name) => (multi ? L.t('{0} -Section {1}-', L.t(name), pg.si + 1) : L.t(name));
+      pg.hdr.dataset.label = label(HF_NAMES[ty][0]);
+      pg.ftr.dataset.label = label(HF_NAMES[ty][1]);
       const refH = LY.hfRefFor(secs, pg.si, 'hdr', pg.type), refF = LY.hfRefFor(secs, pg.si, 'ftr', pg.type);
       if (refH && refH.si < pg.si) pg.hdr.dataset.same = '1'; else delete pg.hdr.dataset.same;
       if (refF && refF.si < pg.si) pg.ftr.dataset.same = '1'; else delete pg.ftr.dataset.same;
     }
   }
   L.bus.on('layout-done', () => { if (LY.hfEdit) labelHF(); });
-  A.closeHeaderFooter = function (silent) {
+  /** back to the body: the caret where ev (a double-click on the body) was, else where it was before the header */
+  let hfReturn = null;
+  A.closeHeaderFooter = function (silent, ev) {
     LY.hfEdit = null;
     LY.root.classList.remove('hfmode');
     if (!silent) {
+      const top = LY.scroller.scrollTop;
       LY.render();
-      const p = D.firstPara(doc().main.blocks);
-      const pg = LY.pages[0];
-      void pg;
-      E.setSel(D.pos(p, 0));
+      LY.scroller.scrollTop = top;
+      const back = hfReturn && D.byId(doc(), hfReturn.a.p.id) === hfReturn.a.p && D.byId(doc(), hfReturn.f.p.id) === hfReturn.f.p ? hfReturn : null;
+      const at = caretAt(ev);
+      if (at) E.setSel(at);
+      else if (back) E.setSel(back.a, back.f);
+      else E.setSel(D.pos(D.firstPara(doc().main.blocks), 0));
     }
+    hfReturn = null;
     A.updateToolbars();
   };
 
   /* ================= misc helpers used by commands ================= */
-  A.gotoPos = function (pos, sel2) {
+  /** select pos (to sel2) and show it; opts.focus false: a modeless dialog (Find and Replace) keeps the keyboard */
+  A.gotoPos = function (pos, sel2, opts) {
+    E.clearObjSel();   /* the text found or gone to is the selection now, not a shape selected before */
+    if (opts && opts.focus === false) {
+      E.setSel(pos, sel2 || pos, { noDom: true });
+      /* an edit just before (Replace) left the page's own selection behind: it would show, and typing would go there */
+      const s = window.getSelection();
+      if (s.rangeCount && LY.root && LY.root.contains(s.anchorNode)) s.removeAllRanges();
+      E.scrollToCaret(true);
+      E.drawSel(true);
+      return;
+    }
     E.setSel(pos, sel2 || pos);
     E.focus();
   };
@@ -978,7 +1112,7 @@
       const used = new Set();
       for (const p of D.allParas(d)) if (D.headingLevel(d, p) && L.md.slug(D.plainText(p), used) === name.toLowerCase()) { A.gotoPos(D.pos(p, 0)); return true; }
     }
-    A.status(`Bookmark "${name}" not found.`);
+    A.status(L.t('Bookmark "{0}" not found.', name));
     return false;
   };
   A.gotoNote = function (key) {
@@ -992,11 +1126,12 @@
   };
   A.contextMenu = function (e) {
     e.preventDefault();
+    if (!E.objSel) E.syncSel();   /* the press moved the caret, but 'selectionchange' comes after this */
     const inTable = L.tables && L.tables.inTable();
     const items = ['cut', 'copy', 'paste', '-'];
     if (E.objSel) items.push({ label: 'Text W&rapping', sub: () => A.wrapItems() }, 'formatObject', '-');
     const ln = e.target.closest && e.target.closest('[data-link]');
-    if (ln) items.push('hyperlink', { label: '&Open Hyperlink', run: () => { const a = document.createElement('a'); a.href = ln.dataset.link; a.target = '_blank'; a.rel = 'noopener'; a.click(); } }, { label: '&Remove Hyperlink', run: () => ui.exec('removeHyperlink') }, '-');
+    if (ln) items.push('hyperlink', { label: '&Open Hyperlink', run: () => L.ed.followLink(ln.dataset.link) }, { label: '&Remove Hyperlink', run: () => ui.exec('removeHyperlink') }, '-');
     if (inTable) items.push({ label: '&Insert', sub: ['colLeft', 'colRight', 'rowAbove', 'rowBelow', 'insertCells'] }, { label: '&Delete', sub: ['deleteTable', 'deleteCols', 'deleteRows', 'deleteCells'] }, 'mergeCells', 'splitCells', '-', 'distRows', 'distCols', '-', 'bordersDlg', { label: 'Cell Alignment', sub: ['cellTop', 'cellMiddle', 'cellBottom'] }, 'tableAutoFormat', 'tableProps', '-');
     const f = L.fields && L.fields.at(E.sel && E.sel.f);
     if (f) items.push('updateField', 'editField', 'toggleCodes', '-');
@@ -1108,8 +1243,6 @@
     const inEditor = tgt && tgt.closest && (tgt.closest('#pages') || tgt.closest('.ed-host'));
     const inInput = tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT');
     if (e.key === 'Escape') {
-      if (A.highlighter) { A.highlighter = null; L.$('#scroller').classList.remove('painting'); A.status(''); return; }
-      if (A.painter) { A.painter = null; L.$('#scroller').classList.remove('painting'); return; }
       if (A.view === 'preview' || A.view === 'reading') { A.setView(A.prevView || 'print'); return; }
       if (L.$('#app').classList.contains('fullscreen')) { ui.exec('fullScreen'); return; }
       if (LY.hfEdit) { A.closeHeaderFooter(); return; }
@@ -1144,18 +1277,21 @@
   function setupSplitters() {
     const sp = L.$('#split-map');
     sp.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
       e.preventDefault();
-      sp.setPointerCapture(e.pointerId);
-      const x0 = e.clientX, w0 = L.$('#docmap').offsetWidth;
-      const mv = (ev) => { L.$('#docmap').style.width = L.clamp(w0 + ev.clientX - x0, 100, 480) + 'px'; };
-      const up = () => { sp.removeEventListener('pointermove', mv); sp.removeEventListener('pointerup', up); LY.fitSizer(); };
-      sp.addEventListener('pointermove', mv); sp.addEventListener('pointerup', up);
+      const map = L.$('#docmap'), w0 = map.offsetWidth, style0 = map.style.width;
+      ui.drag(e, {
+        move: (ev, d) => { map.style.width = L.clamp(w0 + d.dx, 100, 480) + 'px'; },
+        up: (ev, d) => { if (d.moved) LY.fitSizer(); },
+        cancel: () => { map.style.width = style0; },
+      });
     });
   }
 
   /* ================= wiring ================= */
   function wire() {
-    L.bus.on('sel', () => { A.updateStatus(); ui.refresh(); if (L.rulers) L.rulers.drawSoon(); if (A.highlighter && !E.collapsed() && !A.hlBusy) { A.hlBusy = true; setTimeout(() => { if (!E.collapsed()) E.formatRun({ hl: A.highlighter === 'none' ? undefined : A.highlighter }, 'Highlight'); A.hlBusy = false; }, 0); } if (A.painter && !E.collapsed()) A.applyPainter(); });
+    L.bus.on('sel', () => { A.updateStatus(); ui.refresh(); if (L.rulers) L.rulers.drawSoon(); });
+    L.bus.on('sel-done', () => { A.painter.release(); A.highlighter.release(); });
     L.bus.on('objsel', () => { A.updateToolbars(); ui.refresh(); });
     L.bus.on('doc-changed', () => { if (window.VO) VO.changed(doc()); A.updateStatus(); ui.refresh(); if (doc().settings.track || Object.keys(doc().comments).length) A.updateToolbars(); });
     L.bus.on('layout-done', () => { A.updateStatus(); if (L.rulers) L.rulers.drawSoon(); if (L.drawing) L.drawing.placeHandles(); E.placeHandles(); });
@@ -1163,34 +1299,42 @@
     LY.scroller.addEventListener('scroll', () => { if (L.rulers) L.rulers.drawSoon(); });
     window.addEventListener('beforeunload', (e) => { const any = (doc() && doc().dirty) || A.docs.some((w, i) => i !== A.cur && w && w.doc && w.doc.dirty); if (any) { e.preventDefault(); e.returnValue = ''; } });
     window.addEventListener('resize', L.debounce(() => { if (A.view === 'web') LY.render(); else LY.fitSizer(); if (L.rulers) L.rulers.draw(); }, 200));
-    LY.root.addEventListener('mouseup', () => { if (A.painter && !E.collapsed()) A.applyPainter(); });
     document.addEventListener('keydown', (e) => { LY.root.classList.toggle('ctrl', e.ctrlKey || e.metaKey); });
     document.addEventListener('keyup', (e) => { LY.root.classList.toggle('ctrl', e.ctrlKey || e.metaKey); });
   }
 
   /* ================= format painter ================= */
-  A.startPainter = function (sticky) {
-    if (!E.sel) return;
-    A.painter = { rPr: L.clone(E.curRun()), pPr: L.clone(E.sel.f.p.pPr), sticky: !!sticky, whole: !E.collapsed() && E.range()[0].o === 0 };
-    delete A.painter.rPr.link; delete A.painter.rPr.ins; delete A.painter.rPr.del;
-    L.$('#scroller').classList.add('painting');
-    A.status('Select the text to apply the formatting to.');
-    ui.refresh();
-  };
-  A.applyPainter = function () {
-    const pt = A.painter;
-    if (!pt || E.collapsed()) return;
-    const [a, b] = E.range();
-    const keep = E.sel;
-    const src = pt.rPr;
+  const PAINTED = ['font', 'sz', 'b', 'i', 'u', 'uColor', 'strike', 'dstrike', 'color', 'hl', 'caps', 'smallCaps', 'vert', 'spacing', 'shd', 'style'];
+  /** the formatting at the selection, as the Format Painter and Copy Formatting carry it */
+  A.pickFormat = () => (E.sel ? { rPr: L.clone(E.curRun()), pPr: L.clone(E.sel.f.p.pPr) } : null);
+  /** put fmt on the selection, or on the word a click landed in (Word behaviour); false: nothing to paint.
+      The character formatting replaces the target's; its links and revisions stay. */
+  A.paintFormat = function (fmt) {
+    if (!E.sel) return false;
+    let [a, b] = E.range();
+    if (E.collapsed()) {
+      const w = O.wordAt(E.sel.f);
+      if (!w || !(w[0].o < a.o && a.o < w[1].o)) return false;
+      [a, b] = w;
+    }
+    const keep = E.sel, src = fmt.rPr;
     E.edit('Format Painter', () => {
-      O.formatRange(a, b, () => { const r = {}; for (const k of ['font', 'sz', 'b', 'i', 'u', 'uColor', 'strike', 'dstrike', 'color', 'hl', 'caps', 'smallCaps', 'vert', 'spacing', 'shd', 'style']) if (src[k] !== undefined) r[k] = L.clone(src[k]); return r; });
-      if (a.p !== b.p || (a.o === 0 && b.o >= D.plen(b.p))) O.setParaProps(E.selectedParas(), () => L.clone(pt.pPr));
+      O.formatRange(a, b, (r) => { for (const k of PAINTED) { if (src[k] !== undefined) r[k] = L.clone(src[k]); else delete r[k]; } return r; });
+      if (a.p !== b.p || (a.o === 0 && b.o >= D.plen(b.p))) O.setParaProps(E.selectedParas(), () => L.clone(fmt.pPr));
       return keep;
     });
-    if (!pt.sticky) { A.painter = null; L.$('#scroller').classList.remove('painting'); }
     ui.refresh();
+    return true;
   };
+  /* the brushes paint when the mouse is let go ('sel-done'), not while a selection is being dragged out */
+  A.painter = ui.brush({ el: () => L.$('#scroller'), pick: A.pickFormat, apply: A.paintFormat, hint: 'Select the text to apply the formatting to.', status: (t) => A.status(t) });
+  A.highlighter = ui.brush({
+    el: () => L.$('#scroller'),
+    pick: () => A.lastHighlight,
+    apply: (n) => { if (E.collapsed()) return false; E.formatRun({ hl: n === 'none' ? undefined : n }, L.N('Highlight')); return true; },
+    hint: 'Select text to highlight. Press Esc to stop.',
+    status: (t) => A.status(t),
+  });
 
   /* ================= sample document ================= */
   A.buildSample = function () {
@@ -1198,10 +1342,10 @@
     const P = (text, pPr, rPr) => D.para(text ? [D.text(text, rPr || {})] : [], pPr || {});
     const bl = d.main.blocks;
     bl.length = 0;
-    d.props.title = 'Welcome to Quire 2003';
+    d.props.title = 'Welcome to Quire';
     d.props.creator = 'Quire';
-    bl.push(P('Welcome to Quire 2003', { style: 'Title' }));
-    bl.push(P('A word processor in the spirit of Word 2003 — it opens and saves real .docx files.', { style: 'Subtitle' }, { i: true }));
+    bl.push(P('Welcome to Quire', { style: 'Title' }));
+    bl.push(P('A word processor in the spirit of Word — it opens and saves real .docx files.', { style: 'Subtitle' }, { i: true }));
     bl.push(P('Getting around', { style: 'Heading1' }));
     bl.push(D.para([D.text('Type anywhere on this page. Everything works the way you remember: '), D.text('bold', { b: true }), D.text(', '), D.text('italic', { i: true }), D.text(', '), D.text('underline', { u: 'single' }), D.text(', '), D.text('highlighting', { hl: 'yellow' }), D.text(', '), D.text('colors', { color: 'C00000' }), D.text(', styles, bullets, numbering, tables, headers and footers, footnotes, comments, tracked changes, fields and more.')], { jc: 'both' }));
     bl.push(P('Open a document with File ▸ Open, or drop a .docx onto the window. Save with File ▸ Save (Ctrl+S); File ▸ Save As offers Word Document, Word Template, Web Page, Plain Text, Markdown and PDF.', { num: { id: '1', lvl: 0 } }));
@@ -1223,7 +1367,7 @@
     bl.push(fp);
     bl.push(P(''));
     /* header & footer with page numbers */
-    d.hf.h1 = { kind: 'hdr', id: 'h1', blocks: [D.para([D.text('Quire 2003'), D.item('tab'), D.item('tab'), D.text('Sample document')], { style: 'Header' })] };
+    d.hf.h1 = { kind: 'hdr', id: 'h1', blocks: [D.para([D.text('Quire'), D.item('tab'), D.item('tab'), D.text('Sample document')], { style: 'Header' })] };
     const ftr = D.para([D.item('tab'), D.text('Page ')], { style: 'Footer' });
     ftr.runs.push(D.item('fb', { fid: 'f2', instr: ' PAGE ' }), D.item('fs', { fid: 'f2' }), D.text('1'), D.item('fe', { fid: 'f2' }), D.text(' of '), D.item('fb', { fid: 'f3', instr: ' NUMPAGES ' }), D.item('fs', { fid: 'f3' }), D.text('1'), D.item('fe', { fid: 'f3' }));
     d.hf.f1 = { kind: 'ftr', id: 'f1', blocks: [ftr] };
@@ -1235,13 +1379,19 @@
   A.init = async function () {
     A.loadOpts();
     if (window.VO && L.icons.app) VO.setIcon(L.icons.app(32));
+    /* the labels the page's CSS draws on pages and marks, in the UI's language */
+    for (const [v, text] of [['--t-blank', L.t('(This page intentionally left blank by a section break)')], ['--t-same', L.t('Same as Previous')],
+      ['--t-object', L.t('[object]')], ['--t-sect', L.t('Section Break (Next Page)')]]) document.documentElement.style.setProperty(v, JSON.stringify(text));
     buildMenus();
     buildToolbars();
+    L.ribbonUI.init();
     buildStatus();
     LY.mount(L.$('#scroller'));
     E.init();
     if (L.rulers) L.rulers.mount(L.$('#hruler'), L.$('#vruler'), L.$('#rcorner'));
     if (L.panes) { L.panes.task.mount(L.$('#taskpane')); L.panes.docmap.mount(L.$('#docmap')); if (L.panes.reviewing) L.panes.reviewing.mount(L.$('#revpane')); }
+    /* the open task pane follows the selected object to its tool set (common/ribbon.js) */
+    if (L.panes) L.ribbonUI.follow({ task: L.panes.task, sets: { picture: true, drawing: true }, on: () => A.opts.paneFollows !== false });
     setupDrop();
     setupSplitters();
     wire();
@@ -1252,7 +1402,8 @@
     LY.zoom = narrow ? Math.max(0.4, (window.innerWidth - 40) / 816) : A.opts.zoom || 1;
     /* opened from the Start Center: a template, or blank (a new document, or to open a file into); else the sample */
     const launch = window.VO && VO.launch;
-    A.loadDoc(launch && launch.template && L.templates ? L.templates.build(launch.template) : launch ? D.newDoc() : A.buildSample(), 'Document1');
+    if (launch && launch.n) A.untitled = launch.n;   // the desktop app's number for it
+    A.loadDoc(launch && launch.template && L.templates ? L.templates.build(launch.template) : launch ? blank() : A.buildSample(), 'Document' + A.untitled);
     A.view = 'x';
     A.setView(A.opts.view && ['print', 'normal', 'web', 'outline'].includes(A.opts.view) ? A.opts.view : 'print');
     if (L.panes && A.opts.taskOpen) L.panes.task.show('getting-started');
@@ -1262,6 +1413,8 @@
     if (window.VO) VO.attach('quire', {
       async open(f, o) {
         await A.openFile(f);
+        /* a document a page made (desktop app): never saved */
+        if (o && o.made && doc()) { A.saved = false; A.fileName = o.name.replace(/\.(docx|docm|dotx|dotm)$/i, ''); A.updateTitle(); }
         if (o?.draft && doc()) L.opc.recoverLosses(doc(), o.lossState);
         /* an unsaved version: the changes are not saved yet, and a never-saved document still needs Save As */
         if (o && o.draft && doc()) { doc().dirty = true; A.saved = !!o.saved; A.fileName = o.name.replace(/\.(docx|docm|dotx|dotm|md|markdown|zip)$/i, ''); A.updateTitle(); A.status('Recovered the unsaved changes. Save the document to keep them.'); ui.refresh(); }
@@ -1280,6 +1433,8 @@
       current: () => doc(),
       autosave: () => A.opts.autoRecover !== false,
       showRecovery() { if (!L.panes) return; A.opts.taskOpen = true; L.$('#taskpane').hidden = false; L.panes.task.show('recovery'); },
+      pristine,
+      close: confirmDiscard,
       thumb: pageThumb,
       message: (t) => ui.msg(t, { icon: 'warn' }),
       templates: () => (L.templates ? L.templates.list().map(({ id, name }) => ({ id, name })) : []),
@@ -1289,8 +1444,10 @@
   /** Recent Files picture: the first page, drawn as for PDF (print layout only) */
   async function pageThumb() {
     const p = LY.view === 'print' && LY.pages && LY.pages[0];
-    return p ? A.rasterizePage(p.el, 400 / p.el.offsetWidth, docCSS(), await mediaDataMap()) : null;
+    return p ? A.rasterizePage(p.el, 400 / p.el.offsetWidth, docCSS(), await mediaDataMap(p.el)) : null;
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => A.init());
-  else A.init();
+  /* once the page and the UI's dictionary are here (common/i18n.js) */
+  const boot = () => (window.VO && VO.i18n ? VO.i18n.whenReady(() => A.init()) : A.init());
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
 })();

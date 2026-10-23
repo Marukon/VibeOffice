@@ -353,7 +353,7 @@
     if (opts.sel) TE.setSel(opts.sel);
     else if (opts.point) {
       const rg = caretFromPoint(opts.point.x, opts.point.y);
-      if (rg && root.contains(rg.startContainer)) { const s = window.getSelection(); s.removeAllRanges(); s.addRange(rg); if (opts.word && s.modify) { s.modify('move', 'backward', 'word'); s.modify('extend', 'forward', 'word'); } }
+      if (rg && root.contains(rg.startContainer)) { const s = window.getSelection(); s.removeAllRanges(); s.addRange(rg); if (opts.word) wordAround(s); }
       else TE.setSel(endSel(tx));
     } else if (opts.selectAll) TE.setSel(T.allRange(tx));
     else TE.setSel(endSel(tx));
@@ -361,6 +361,15 @@
     E.drawOverlay();
     L.bus.emit('edit-start');
     L.ui.refresh();
+  };
+  function wordAround(s) { if (s.modify) { s.modify('move', 'backward', 'word'); s.modify('extend', 'forward', 'word'); } }
+  /** select the word at a screen point of the text being edited (a double-click whose first click started the edit) */
+  TE.selectWordAt = function (x, y) {
+    const rg = TE.state && caretFromPoint(x, y);
+    if (!rg || !TE.contains(rg.startContainer.nodeType === 1 ? rg.startContainer : rg.startContainer.parentNode)) return;
+    const s = window.getSelection();
+    s.removeAllRanges(); s.addRange(rg); wordAround(s);
+    TE.lastSel = TE.getSel();
   };
   const endSel = (tx) => { const p = tx.ps.length - 1; const o = T.len(tx.ps[p]); return { p0: p, o0: o, p1: p, o1: o }; };
   function caretFromPoint(x, y) {
@@ -516,12 +525,6 @@
     if (s) {
       if (TE.pending && (s.p0 !== TE.pending.at.p || s.o0 !== TE.pending.at.o || !T.collapsed(s))) TE.pending = null;
       TE.lastSel = s;
-      if (E.tool && E.tool.kind === 'painter' && !T.collapsed(s) && !TE._painting) {
-        TE._painting = true;
-        const fmt = E.tool.fmt;
-        const done = () => { document.removeEventListener('pointerup', done); TE._painting = false; const s2 = TE.getSel(); if (s2 && !T.collapsed(s2) && fmt.run) { TE.applyRun((r) => Object.assign({}, r, fmt.run), 'Format Painter', s2); if (!E.tool.sticky) E.setTool(null); } };
-        document.addEventListener('pointerup', done);
-      }
       L.ui.refresh();
     }
   });
@@ -532,7 +535,7 @@
     if (!st) return;
     const t = e.inputType;
     if (t === 'historyUndo' || t === 'historyRedo') { e.preventDefault(); L.ui.exec(t === 'historyUndo' ? 'undo' : 'redo'); return; }
-    L.hist.push('Typing', 'type:' + st.id + ':' + (st.cell ? st.cell.join(',') : ''));
+    L.hist.push(L.N('Typing'), 'type:' + st.id + ':' + (st.cell ? st.cell.join(',') : ''));
     if (t === 'insertParagraph') { e.preventDefault(); TE.newParagraph(); return; }
     if (t === 'insertLineBreak') { e.preventDefault(); TE.insertText('\n', { asBreak: true }); return; }
     if (t === 'insertText' && e.data) {
@@ -579,7 +582,7 @@
     if (files.length && L.app) { TE.end(); L.app.insertPictureFiles(files); return; }
     const text = dt.getData('text/plain');
     if (!text) return;
-    L.hist.push('Paste');
+    L.hist.push(L.N('Paste'));
     TE.insertText(text.replace(/\r\n?/g, '\n').replace(/\t/g, '\t'));
   }
 
@@ -681,17 +684,17 @@
     if (T.collapsed(s)) {
       const w = T.wordAt(t.tx, { p: s.p0, o: s.o0 });
       if (w) {
-        L.hist.push(label || 'Format');
+        L.hist.push(label || L.N('Format'));
         T.mapRange(t.tx, w, fn);
         TE.rerender(s);
       } else {
         const base = T.propsAt(t.tx, { p: s.p0, o: s.o0 });
         const p = t.tx.ps[s.p0];
-        if (!T.len(p)) { L.hist.push(label || 'Format'); p.end = fn(Object.assign({}, p.end || base)); delete p.end.t; TE.rerender(s); }
+        if (!T.len(p)) { L.hist.push(label || L.N('Format')); p.end = fn(Object.assign({}, p.end || base)); delete p.end.t; TE.rerender(s); }
         else TE.pending = { at: { p: s.p0, o: s.o0 }, props: (() => { const r = fn(Object.assign({}, base, TE.pending ? TE.pending.props : {})); delete r.t; return r; })() };
       }
     } else {
-      L.hist.push(label || 'Format');
+      L.hist.push(label || L.N('Format'));
       T.mapRange(t.tx, s, fn);
       TE.rerender(s);
     }
@@ -743,11 +746,21 @@
     const t = TE.target();
     if (!t) return false;
     const k = e.key;
+    /* over a range of table cells, Delete and Backspace empty the cells; typing or moving goes on in the cell where the
+       drag started, and the range ends with its highlight (as Impress) */
+    if (E.cellSel && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (k === 'Delete' || k === 'Backspace') { e.preventDefault(); clearCells(t); return true; }
+      if (k.length === 1 || /^(Enter|Tab|Arrow\w+|Home|End|PageUp|PageDown)$/.test(k)) {
+        E.cellSel = null; E.drawOverlay();
+        const s = window.getSelection();
+        if (!s.rangeCount || !TE.state.root.contains(s.anchorNode)) TE.setSel(endSel(t.tx));
+      }
+    }
     if (k === 'Escape') { e.preventDefault(); const id = t.sh.id; TE.end(); E.select([id]); E.refocus(); return true; }
     if (k === 'F2') { e.preventDefault(); const id = t.sh.id; TE.end(); E.select([id]); E.refocus(); return true; }
     if (k === 'Enter' && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault();
-      L.hist.push('Typing', 'type:' + TE.state.id + ':' + (TE.state.cell ? TE.state.cell.join(',') : ''));
+      L.hist.push(L.N('Typing'), 'type:' + TE.state.id + ':' + (TE.state.cell ? TE.state.cell.join(',') : ''));
       if (e.shiftKey) TE.insertText('\n', { asBreak: true }); else TE.newParagraph();
       return true;
     }
@@ -755,7 +768,7 @@
       e.preventDefault();
       if (t.sh.type === 'table') { TE.moveCell(e.shiftKey ? -1 : 1); return true; }
       if (TE.atParaStart() || TE.multiPara() || e.shiftKey) L.ui.exec(e.shiftKey ? 'promote' : 'demote');
-      else { L.hist.push('Typing', 'type:' + TE.state.id + ':' + (TE.state.cell ? TE.state.cell.join(',') : '')); TE.insertText('\t'); }
+      else { L.hist.push(L.N('Typing'), 'type:' + TE.state.id + ':' + (TE.state.cell ? TE.state.cell.join(',') : '')); TE.insertText('\t'); }
       return true;
     }
     if (k === 'Backspace' && !e.ctrlKey && TE.atParaStart()) {
@@ -765,6 +778,18 @@
     }
     return false;
   };
+  /** empty the cells of the range (one undo step); the caret stays in the cell the drag started from */
+  function clearCells(t) {
+    const cells = E.cellSel, id = t.sh.id, cell = TE.state.cell;
+    TE.detach();
+    E.cellSel = cells;
+    L.hist.push(L.N('Clear'));
+    F.forEachTx(t.sh, (tx) => { tx.ps = [Object.assign(L.clone(tx.ps[0]), { rs: [] })]; });
+    E.cellSel = null;
+    E.render({ keepEdit: false });
+    TE.begin(id, { cell, sel: { p0: 0, o0: 0, p1: 0, o1: 0 } });
+    E.touched();
+  }
   TE.moveCell = function (dir) {
     const st = TE.state;
     const sh = TE.target().sh;
@@ -816,8 +841,10 @@
     const shapes = TE.active() ? [TE.target().sh] : F.textShapes();
     if (!shapes.length) return;
     const editSnap = TE.active() ? TE.snapshot() : null;
+    const cells = E.cellSel;   /* a range of table cells: detaching ends it, but it is what gets formatted */
     if (editSnap) TE.detach();
-    L.hist.push(label || 'Format');
+    E.cellSel = cells;
+    L.hist.push(label || L.N('Format'));
     for (const sh of shapes) {
       if (sh.type === 'wordart') { if (waFn) waFn(sh.wa); continue; }
       forEachTx(sh, (tx) => { T.mapRange(tx, T.allRange(tx), fn); for (const p of tx.ps) if (!p.rs.length) { p.end = fn(Object.assign({}, p.end || {})); delete p.end.t; } });
@@ -825,6 +852,7 @@
     if (E.view === 'master') E.syncMaster();
     E.render({ keepEdit: false });
     if (editSnap) TE.resume(editSnap);
+    if (cells && editSnap) { E.cellSel = cells; E.drawOverlay(); }   /* the range stays selected */
     E.touched();
   };
   F.para = function (fn, label) {
@@ -832,12 +860,15 @@
     const shapes = TE.active() ? [TE.target().sh] : F.textShapes().filter((s) => s.type !== 'wordart');
     if (!shapes.length) return;
     const editSnap = TE.active() ? TE.snapshot() : null;
+    const cells = E.cellSel;   /* a range of table cells: detaching ends it, but it is what gets formatted */
     if (editSnap) TE.detach();
+    E.cellSel = cells;
     L.hist.push(label || 'Format Paragraph');
     for (const sh of shapes) forEachTx(sh, (tx) => tx.ps.forEach((p, i) => fn(p, i, { sh, tx })));
     if (E.view === 'master') E.syncMaster();
     E.render({ keepEdit: false });
     if (editSnap) TE.resume(editSnap);
+    if (cells && editSnap) { E.cellSel = cells; E.drawOverlay(); }   /* the range stays selected */
     E.touched();
   };
   /** Effective run & paragraph state for toolbar display */

@@ -1,7 +1,10 @@
-# Quire 2003 — Web Edition
+# Quire — Web Edition
 
 A Word 2003–style word processor written in plain HTML and vanilla JavaScript (no build step, no
 libraries). It reads and writes Office Open XML (`.docx`, `.docm`, `.dotx`, `.dotm`) files.
+In the suite's Paper 2016 look (Themes on the Start Center, or Tools ▸ Options ▸ General ▸ Theme) a
+ribbon with Word 2016's tabs (Home, Insert, Design, Layout, References, Mailings, Review, View and
+the tool tabs) takes the place of the menus and toolbars.
 
 ## Using it
 
@@ -11,14 +14,16 @@ feature. The proofing dictionaries are fetched at run time from `../common/dict/
 so the site is served rather than opened from disk (a `file://` page cannot fetch them; editing still
 works, but spelling and the thesaurus stay off). To run it locally, see [testing.md](testing.md).
 The metric-compatible fonts (see *Rendering notes*) are served with the site from `public/fonts/`.
+A hyperlink is never opened from the document: Ctrl+click and Open Hyperlink show its address to copy
+(docs/suite.md, Hyperlinks); `#bookmark` links go to the bookmark.
 
 ## Proofing tools (offline)
 
 | Feature | How it works |
 | --- | --- |
-| Spelling (as you type and Tools ▸ Spelling and Grammar) | Word lists for English (U.S.) and English (U.K.) in `common/dict/en_US.words` and `common/dict/en_GB.words`, expanded from the Hunspell/SCOWL dictionaries and ranked by word frequency so suggestions come out in a sensible order. Unknown words get red wavy underlines (CSS Custom Highlight API); right-click for suggestions, Ignore All and Add to Dictionary. Underlines are off when a document opens (and the dictionary is not loaded): click the spelling icon in the status bar to check that document as you type, click again to stop. |
+| Spelling (as you type and Tools ▸ Spelling and Grammar) | Word lists for English (U.S.) and English (U.K.) in `common/dict/en_US.words` and `common/dict/en_GB.words`: SCOWL's own lists at size 60 (the ones its Hunspell en_US and en_GB-ise dictionaries are made from; `tools/dict.py` rebuilds the British one), ranked by word frequency so suggestions come out in a sensible order. Unknown words get red wavy underlines (CSS Custom Highlight API); right-click for suggestions, Ignore All and Add to Dictionary. Underlines are off when a document opens (and the dictionary is not loaded): click the spelling icon in the status bar to check that document as you type, click again to stop. |
 | Grammar | A rule checker for the mistakes Word 2003 flagged most often: repeated words, a/an, capitalisation at sentence start, spacing around punctuation, commonly confused words, simple subject–verb agreement. Green wavy underlines. |
-| Thesaurus and Research pane | `common/dict/en.thes`, built from the WordNet 3.1 thesaurus (MyThes format), with meanings grouped by part of speech, related words, antonyms and a Back history. "Search This Document" finds the word in the open document. |
+| Thesaurus and Research pane | `common/dict/en.thes`, built from the WordNet-based thesaurus LibreOffice ships (`th_en_US_v2`, MyThes format), with meanings grouped by part of speech, related words, antonyms and a Back history. "Search This Document" finds the word in the open document. |
 | Custom dictionary | Tools ▸ Options ▸ Spelling & Grammar; words you add are stored in the browser. |
 | Readability statistics | Tools ▸ Options ▸ Spelling & Grammar ▸ Readability Statistics (counts, Flesch Reading Ease, Flesch–Kincaid Grade Level, passive sentences). |
 
@@ -34,10 +39,63 @@ Licences for the word lists are in `public/common/dict/LICENSES.txt`.
 - More of Word's own habits: a right or centred tab stop placed beyond the right indent lets the page
   number of a table of contents run out to it; superscripts and footnote references do not push their
   line down; table rows are as tall as Word makes them even though the browser draws hairline borders a
-  whole pixel wide; East Asian documents with a line grid snap their lines to it; a "next column"
+  whole pixel wide; East Asian documents with a line grid snap their lines to it (below); a "next column"
   section break in a one-column layout starts a new page; "page break before" on the first paragraph
-  of a table breaks before the table; Word 2013+ documents drop space before after a manual page break,
-  and keep the paragraph mark of a page break that ends the document on the same page.
+  of a table breaks before the table; Word 2013+ documents drop space before after a manual page break;
+  Word 2010+ documents keep the paragraph mark of a page break that ends a section's last paragraph on
+  the page of the break (older ones carry it over to a page of its own); an empty paragraph holding only
+  a section break makes no page of its own when the next section starts on a new page anyway: pushed off
+  a full page, or past a page break unless it has "page break before" of its own, it stays at the foot
+  of that page. Of 153 Word-saved corpus files with such a paragraph, 3 more now show Word's stored page
+  count (113), and none moves away from it; for issue 20, of the 57 Word 2007/2010 files with a page
+  break and a section break or a break at their end, 4 more show it (42 in all), one more comes closer,
+  and none moves away. A centred table wider than its column overhangs both margins evenly, a
+  right-aligned one the left margin.
+- East Asian text is drawn with the run's East Asian font (`w:eastAsia`, or the theme's for the
+  document's East Asian language) and marked with its East Asian language, and takes that font's line
+  height where it is the taller ([i18n.md](i18n.md), Fonts). A new document follows the UI's language:
+  A4, Office's margins, and Japanese or Chinese line grids and fonts (i18n.md, Defaults). Where East
+  Asian text is typed (`A.typingEA`), the Font box and the status bar show the East Asian font and
+  language, and an East Asian font chosen there is for all the text, a Western one for Latin text only.
+- Each line is as tall as what it holds, as Word sizes lines (`js/portions.js`, after Apache OpenOffice
+  Writer's line portions): a line with text by its text, a picture alone in its line exactly the
+  picture's height (Quire added the text's descent below it, 3 to 7pt), a large first word no longer
+  makes every line of its paragraph that tall, and blanks and tabs don't raise a line. A line holding
+  nothing that counts takes the paragraph mark's font, or that of the line break that ends it; with
+  exact spacing every line is the value, whatever sizes its text has; a Symbol or Wingdings bullet's
+  line is as tall as that font makes it, though it is drawn in Arial. A Word-saved 19-page walkthrough
+  that made 20 pages (two pictures pushed a page break onto a page of its own) now breaks where Word's
+  PDF does on every page, and two lines that follow each other there are as far apart as in Word
+  within 0.51pt (`tests/quire/lines.test.mjs`); 15 synthetic cases match LibreOffice within 0.2pt. Of
+  2,289 Word-saved corpus files, 2,136 show Word's stored page count (2,127 before); the 10 whose count
+  changed all moved toward Word's, none away (`tools/quire-pages.mjs`).
+  Not covered yet: a picture in a line with exact spacing (Word clips it to the line), a picture alone
+  with multiple spacing or on a grid, a line of only a small picture (Quire follows LibreOffice: the
+  mark's line, the picture at its foot), and a large paragraph mark after small text (matched to
+  LibreOffice only).
+- On a document line grid (East Asian documents) a line is the grid pitch times its "multiple"
+  spacing, and at least the whole pitches its text needs: 1.5 lines on the usual 15.6pt grid are
+  23.4pt, and 14pt text at 1.7 lines takes two pitches, 31.2pt (issue #11). Word centres the text in
+  its line, and at the foot of a page only the space below the text may run into the margin. Against
+  Word's PDF of 90 cases (`tools/linegrid.py`: 10.5 to 28pt text, 0.8 to 3 lines, 15.6pt and 18pt
+  grids, English and Chinese), all 90 line heights match, and pages 1 to 5 and the 18pt grid's pages
+  break where Word's do. Of the 135 Word-saved corpus files with a grid, 126 show Word's stored page
+  count, as before.
+- Page and section totals are filled in once pagination is complete, and tabbed text around them
+  is measured again. Pages are laid out again only from the first page where a new total changes a
+  paragraph's height (a line wraps, a footer grows), so a long document with "Page X of Y" opens in
+  one layout pass (181 pages: 330 ms, was 600 ms with a second full pass). This handles changes such
+  as 9 to 10 or 99 to 100 pages, including when deleting pages reduces the count again.
+- Formatting symbols are drawn over the text without changing run shaping, line wrapping or
+  paragraph heights. The symbols are omitted from PDF and print output. Showing hidden text can
+  still reveal additional content and affect layout. Marks follow rotated text boxes, zoom,
+  right-to-left paragraphs and vertical table text.
+- Encoded carriage returns (`&#13;`) inside DOCX text runs render as line breaks; CRLF pairs render
+  as one break, including pairs split by formatting, bookmarks or inline content controls.
+  Their original text characters and editing offsets survive save and reopen. Forced lines
+  are counted during pagination even when a centered or right-aligned line starts farther right.
+  This reproduces the line-break symptom in issue #1 with a synthetic fixture; the reporter's
+  original document has not been available to confirm that it uses the same encoding.
 - Equations (Office Math, `m:oMath`) are rendered as MathML: fractions, scripts, radicals, delimiters,
   n-ary operators, accents, matrices and equation arrays. They are kept unchanged when saving.
 - Content controls bound to custom XML or to the document properties show the bound values, as Word
@@ -58,7 +116,7 @@ Licences for the word lists are in `public/common/dict/LICENSES.txt`.
 | Word Document `.docx` / `.docm` | yes | yes |
 | Strict Open XML `.docx` | yes | standard Transitional OOXML (recorded, not shown) |
 | Word Template `.dotx` / `.dotm` | yes | yes |
-| Web Page `.htm` / `.html` | yes | yes (single file, images inlined) |
+| Web Page `.htm` / `.html` | yes | yes (single file, images inlined, with its own security policy: no scripts) |
 | Rich Text Format `.rtf` | yes | yes |
 | Plain Text `.txt` | yes | yes |
 | Markdown `.md` / `.markdown` (GitHub flavour) | yes | yes |
@@ -230,6 +288,22 @@ tests. All emitted package content matches the frozen saves except generated met
 so the existing layout evidence applies. The scope scan retains 35 failed archive/main-XML reads
 separately. Evidence: `~/corpora/results/quire-structure-notices-2026-10-09/`.
 
+The issue #1 regressions pass all **4 browser checks**, each of which fails on the previous
+commit. The full save/reopen recheck completes **2,880/2,902 inputs**, with the same **22 failures**
+reproduced on the previous commit. Nine independently authored page-field documents save with
+byte-identical package contents under both writers and add no package/SDK diagnostics.
+LibreOffice opens **8 original/saved pairs** with matching page counts; the remaining original
+fails to load. The generated carriage-return fixtures also pass package/SDK checks and retain
+their separate lines in LibreOffice. Reports: `~/corpora/results/issue-1-2026-10-11/`.
+
+Review of that fix adds **5 edge-case regression groups**, all failing on the first fix and
+passing after correction: protected fill destinations, split CRLF pairs through formatting and
+save/reopen, forced-line pagination, mark placement in rotated, RTL and vertical text at
+three zoom levels, and omission of all formatting symbols from print/PDF rendering.
+The original four groups still pass, as do **79 Ledger and 29 Quire unit
+tests**. Three split-CRLF packages pass package/SDK validation without diagnostics and retain
+their line count in LibreOffice. Reports: `~/corpora/results/issue-1-review-2026-10-11/`.
+
 The convention scan has 193 signatures, unchanged from the preceding full writer. The earlier
 scoped MC rules and Strict list-alignment entries retain their reviewed source properties.
 No new package/SDK diagnostic accompanies them. Office batches 1–2, including the
@@ -337,12 +411,13 @@ compatibility results are archived with the run history rather than mixed into c
 
 | File | What it does |
 | --- | --- |
-| `index.html` | Window chrome, CSS (Office 2003 Luna Blue), script order |
+| `index.html` | Window chrome and page CSS, script order |
 | `../common/core.js`, `../common/zip.js` | Utilities, colour maths, storage, ZIP reader/writer, PDF writer, downloads |
 | `../common/xml.js`, `../common/opc.js`, `../common/opc-order.js` | Shared OOXML package graph, identity reservations, AlternateContent capture and schema-order merges |
 | `../common/sha.js`, `../common/crypto.js` | Password-protected documents: compound-file reader/writer, AES, ECMA-376 agile and standard encryption |
 | `js/dmodel.js`, `js/ops.js` | Document model (paragraphs, runs, tables, sections, styles, numbering), undo history, editing operations |
 | `js/render.js`, `js/layout.js` | Paragraph/run rendering, pagination, headers/footers, footnotes, columns, floats |
+| `js/portions.js` | How tall each line is, from what it holds (after Apache OpenOffice Writer's line portions) |
 | `js/editor.js` | contentEditable bridge: selection mapping, typing, IME, clipboard, keyboard |
 | `js/preserve.js` | Package ownership/merges; controls and XML bindings; property/range preservation; opaque frames, compatibility alternatives and clipboard dependencies |
 | `js/preserve-drawing.js` | Property-level DrawingML/VML merges, including compatibility choices, picture effects and anchor edits |
@@ -352,14 +427,16 @@ compatibility results are archived with the run history rather than mixed into c
 | `js/fields.js` | Field engine (PAGE, DATE, REF, SEQ, TOC, INDEX, IF, formulas, …), footnotes and endnotes |
 | `js/review.js` | Track changes, comments, balloons, Reviewing pane, compare documents |
 | `js/tables.js` | Tables and Borders toolbar, table styles, draw/erase, merge/split, sort, formulas |
-| `js/drawing.js`, `js/drawtool.js`, `../common/geometry.js`, `../common/charts.js`, `../common/metafile.js`, `../common/clipart.js` | Pictures, AutoShapes, WordArt, diagrams, charts, WMF/EMF, clip art |
+| `js/drawing.js`, `js/drawtool.js`, `../common/geometry.js`, `../common/charts.js`, `../common/metafile.js`, `../common/clipart.js` | Pictures, AutoShapes, LettersArt (WordArt), diagrams, charts, WMF/EMF, clip art |
 | `js/autocorrect.js`, `../common/spell.js`, `js/spell.js` | AutoCorrect, AutoFormat as you type, AutoText; the shared spelling engine and Quire's Spelling and Grammar (offline) |
 | `js/omml.js` | Office Math (OMML) to MathML for equations |
 | `../common/dict/` | Spelling word lists, thesaurus, licences (shared with Ledger) |
-| `js/outline.js`, `js/rulers.js`, `js/panes.js` | Outline view, rulers, task panes (Research/Thesaurus, Clip Art, Styles…), Document Map, thumbnails, Print Preview, Reading Layout |
+| `js/outline.js`, `js/rulers.js`, `js/panes.js` | Outline view, rulers, task panes (Research/Thesaurus, Clip Art, Styles…; while open, Picture or Drawing Tools for a selected object, docs/suite.md), Document Map, thumbnails, Print Preview, Reading Layout |
 | `js/mailmerge.js`, `js/templates.js` | Mail Merge wizard and toolbar, document templates |
-| `../common/ui.js`, `../common/icons.js`, `../common/luna.css` | Menus, toolbars, dialogs, colour pickers, original 16×16 icon set, the Luna look (shared) |
+| `../common/ui.js`, `../common/search.js`, `../common/icons.js`, `../common/looks.css`, `../common/ui.css` | Menus, toolbars, dialogs, colour pickers, Search commands, original 16×16 icon set, the looks (shared) |
 | `js/commands.js`, `js/dialogs*.js`, `js/find.js`, `js/app.js` | Command registry, all dialogs, Find and Replace, application controller |
+| `js/ribbon.js`, `../common/ribbon.js` | The Paper 2016 look's ribbon: Word's tabs and groups over Quire's commands ([suite.md](suite.md#the-ribbon)) |
+| `../common/scout/` | Scout, the assistant: Help ▸ Show the Assistant ([suite.md](suite.md#the-assistant-scout)) |
 
 Quire is an independent program. Microsoft, Word and Office are trademarks of Microsoft Corporation;
-Quire is not affiliated with Microsoft.
+Quire is not affiliated with Microsoft. More in the README (Legal).

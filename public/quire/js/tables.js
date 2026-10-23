@@ -178,7 +178,12 @@
     if (!rg) return;
     const t = rg.tbl;
     if (rg.r0 === 0 && rg.r1 >= t.rows.length - 1) { T.deleteTable(); return; }
-    E.edit('Delete Rows', () => {
+    E.edit('Delete Rows', () => T.removeRows(t, rg.r0, rg.r1));
+  };
+  /** remove rows r0…r1 of table t (inside an edit); the caret position in the row now there */
+  T.removeRows = function (t, r0, r1) {
+    const rg = { r0, r1 };
+    {
       D.touchTbl(t);
       const map = R.tblMap(t);
       /* a merge that starts in a deleted row and continues below restarts below */
@@ -194,7 +199,7 @@
       const r = t.rows[Math.min(rg.r0, t.rows.length - 1)];
       cleanMerges(t);
       return firstPos(r.cells.find((c) => c.tcPr.vMerge !== 'continue') || r.cells[0]);
-    });
+    }
   };
   /** a lone 'continue' with no restart above becomes a restart; a restart with nothing below loses its merge */
   function cleanMerges(t) {
@@ -567,8 +572,8 @@
     E.edit('Heading Rows Repeat', () => { D.touchTbl(t); for (let r = 0; r <= rg.r1; r++) { if (on) t.rows[r].trPr.header = true; else delete t.rows[r].trPr.header; } return E.sel; });
   };
   T.shade = function (fill) {
-    if (!T.inTable()) { E.formatPara((pPr) => { pPr.shd = fill ? { val: 'clear', fill, color: 'auto' } : undefined; }, 'Shading'); return; }
-    forCells('Shading', (c) => { if (fill) c.tcPr.shd = { val: 'clear', fill, color: 'auto' }; else delete c.tcPr.shd; });
+    if (!T.inTable()) { E.formatPara((pPr) => { pPr.shd = fill ? { val: 'clear', fill, color: 'auto' } : undefined; }, L.N('Shading')); return; }
+    forCells(L.N('Shading'), (c) => { if (fill) c.tcPr.shd = { val: 'clear', fill, color: 'auto' }; else delete c.tcPr.shd; });
   };
   /** border buttons applied to the selected cells */
   T.applyBorder = function (k) {
@@ -604,7 +609,7 @@
     /* toggle: if every target edge already shows a border, the button removes them */
     let allOn = k !== 'none';
     for (const [c, p] of pos) { const e = edgesFor(p); for (const s in e) if (e[s] && !R.hasBorder(effective(c, s, p))) allOn = false; }
-    E.edit('Borders', () => {
+    E.edit(L.N('Borders'), () => {
       D.touchTbl(t);
       for (const [c, p] of pos) {
         const e = edgesFor(p);
@@ -664,7 +669,7 @@
     const d = doc();
     const avail = availWidth(D.pos(D.firstPara(t.rows[0].cells[0].blocks) || E.sel.f.p, 0)) ;
     const outer = (() => { const tb = D.tblInfo(d, t); if (!tb || !tb.parents.length) { const s = D.sectFor(d, E.sel.f.p); return s.pgW - s.ml - s.mr - (s.gutter || 0); } return avail; })();
-    E.edit('AutoFit', () => {
+    E.edit(L.N('AutoFit'), () => {
       D.touchTbl(t);
       const { tp } = R.tblProps(d, t);
       const mar = (tp.cellMar.l || 0) + (tp.cellMar.r || 0);
@@ -762,7 +767,7 @@
     let hdr = 0;
     if (opts.header) hdr = 1;
     else while (hdr < t.rows.length && t.rows[hdr].trPr.header) hdr++;
-    E.edit('Sort', () => {
+    E.edit(L.N('Sort'), () => {
       D.touchTbl(t);
       const body = t.rows.slice(hdr);
       const textAt = (row, col) => { const m = R.tblMap({ rows: [row], tblPr: t.tblPr })[0].find((x) => x.c0 <= col && col < x.c0 + x.span); return m ? cellText(m.cell) : ''; };
@@ -933,7 +938,7 @@
     if (!ci) return;
     let dir = 'ABOVE';
     try { const v = T.evalFormula('SUM(ABOVE)', E.sel.f.p); const left = T.evalFormula('SUM(LEFT)', E.sel.f.p); if (!v && left) dir = 'LEFT'; } catch (e) { /* default above */ }
-    A().insertFieldNow('=SUM(' + dir + ')', 'AutoSum');
+    A().insertFieldNow('=SUM(' + dir + ')', L.N('AutoSum'));
   };
 
   /* ================= conversion ================= */
@@ -1089,6 +1094,7 @@
   /* ================= Draw Table pencil, eraser, and border dragging ================= */
   T.tool = null;
   T.setTool = function (kind) {
+    L.ui.dragCancel();   /* a tool switch ends a drag in progress */
     T.tool = kind;
     const sc = L.$('#scroller');
     sc.classList.toggle('tool-pen', kind === 'draw');
@@ -1148,12 +1154,12 @@
     place(e.clientX, e.clientY);
     const x0 = e.clientX, y0 = e.clientY;
     drag = { hb };
-    const mv = (ev) => place(ev.clientX, ev.clientY);
-    const up = (ev) => {
-      window.removeEventListener('pointermove', mv, true);
-      window.removeEventListener('pointerup', up, true);
+    L.ui.drag(e, { move: (ev) => place(ev.clientX, ev.clientY), up, cancel: () => { guide.remove(); drag = null; }, capture: sc });
+    /* the release sets the width or height the guide shows; a click on the border changes nothing */
+    function up(ev, dr) {
       guide.remove();
       drag = null;
+      if (!dr.moved) return;
       const dxPt = (ev.clientX - x0) * ptPerPx(), dyPt = (ev.clientY - y0) * ptPerPx();
       if (hb.kind === 'col' && Math.abs(dxPt) > 0.5) {
         const k = m.c0 + m.span - 1;
@@ -1174,9 +1180,7 @@
         const ri = c.ri + (m.rowspan || 1) - 1;
         E.edit('Row Height', () => { D.touchTbl(t); t.rows[ri].trPr.h = L.round(Math.max(6, cur + dyPt), 2); if (t.rows[ri].trPr.hRule !== 'exact') t.rows[ri].trPr.hRule = 'atLeast'; return E.sel; });
       }
-    };
-    window.addEventListener('pointermove', mv, true);
-    window.addEventListener('pointerup', up, true);
+    }
   }
   /* pencil & eraser */
   function toolDown(e) {
@@ -1212,13 +1216,12 @@
       ghost.style.cssText = `left:${l - sr.left + sc.scrollLeft}px;top:${t0 - sr.top + sc.scrollTop}px;width:${Math.abs(ev.clientX - x0)}px;height:${Math.abs(ev.clientY - y0)}px`;
     };
     upd(e);
-    const mv = (ev) => upd(ev);
-    const up = (ev) => {
-      window.removeEventListener('pointermove', mv, true);
-      window.removeEventListener('pointerup', up, true);
+    L.ui.drag(e, { move: (ev) => upd(ev), up, cancel: (d, why) => { ghost.remove(); if (why === 'esc') T.setTool(null); }, capture: sc });
+    /* the release draws the table or the line the outline shows */
+    function up(ev, dr) {
       ghost.remove();
       const w = Math.abs(ev.clientX - x0) * ptPerPx(), hh = Math.abs(ev.clientY - y0) * ptPerPx();
-      if (w < 4 && hh < 4) return;
+      if (!dr.moved || (w < 4 && hh < 4)) return;
       if (startTd) {
         const t = findTable(+startTd.closest('table.tbl').dataset.tid);
         const c = t && cellById(t, +startTd.dataset.cid);
@@ -1257,9 +1260,7 @@
       T.insert(1, 1, { width: Math.max(18, w), colWidth: Math.max(18, w) });
       const ci = T.cur();
       if (ci && hh > 14) E.edit('Draw Table', () => { D.touchTbl(ci.tbl); ci.tbl.rows[0].trPr.h = L.round(hh, 2); ci.tbl.rows[0].trPr.hRule = 'atLeast'; return E.sel; });
-    };
-    window.addEventListener('pointermove', mv, true);
-    window.addEventListener('pointerup', up, true);
+    }
   }
   void tableOf;
   T.mount = function () {

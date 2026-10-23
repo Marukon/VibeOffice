@@ -9,16 +9,17 @@
   const E = L.ed;
   const TE = L.te;
 
-  /* original application icon: a lectern carrying a slide */
+  /* original application icon, drawn like Quire's and Ledger's: a page with a tile carrying a presentation screen */
   L.icons.app = function (size) {
     const sz = size || 16;
-    return `<svg class="appico" width="${sz}" height="${sz}" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 1.5h12v8H2z" fill="#fff8e1" stroke="#b5651d"/><path d="M3 3h10v2.2H3z" fill="#e8641c"/><path d="M4 6.6h5M4 8h7" stroke="#b5651d" stroke-width=".8"/><path d="M5 10h6l1 4.5H4z" fill="#8c5a2b" stroke="#5a3a1a"/><path d="M3 14.5h10" stroke="#5a3a1a" stroke-width="1.2"/></svg>`;
+    return `<svg class="appico" width="${sz}" height="${sz}" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 1.5h8l3 3v10h-11z" fill="#fff" stroke="#a8471a"/><path d="M11.5 1.5v3h3" fill="#fbe3d6" stroke="#a8471a"/><rect x="1.5" y="4.5" width="7" height="8" fill="#d2602a" stroke="#93401a"/><path d="M2.9 6.3h4.2v3.1H2.9z" fill="none" stroke="#fff" stroke-width="1.1"/><path d="M5 9.4v1.4M3.7 11.3l1.3-.9 1.3.9" fill="none" stroke="#fff" stroke-width="1"/><path d="M9.8 6.8h3.6v2.7H9.8z" fill="none" stroke="#c99a7e"/><path d="M10 11.5h3.2" stroke="#c99a7e"/></svg>`;
   };
   /* the slide editor around commands, toolbar boxes and dialogs (common/ui.js) */
   ui.hooks = {
     beforeExec() {},
     refocus() { if (L.ed) L.ed.refocus(); },
     commitEdit() { if (L.ed && L.ed.textSave) L.ed.textSave(); },
+    ownsText: (el) => !!(L.ed && L.ed.scroller && L.ed.scroller.contains(el)),   /* the slide's text, not the notes */
   };
   /* colour menus offer the design's theme colours first */
   ui.currentDesign = () => (L.ed && L.ed.slide && L.pres ? M.design(L.pres, L.ed.slide()) : null);
@@ -30,9 +31,9 @@
   L.SIZE_LIST = [8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 44, 48, 54, 60, 66, 72, 80, 88, 96];
 
   const DEFAULT_OPTS = {
-    startupPane: true, layoutPaneOnNew: true, statusBar: true, ruler: false, showPopup: true, showPopbar: true, endBlack: true,
+    startupPane: true, layoutPaneOnNew: true, paneFollows: true, statusBar: true, ruler: false, showPopup: true, showPopbar: true, endBlack: true,
     smartQuotes: true, autocorrect: true, capSentence: true, spell: true, autoPreview: true, gray: false, bw: false, outlinePlain: false, alignToSlide: false,
-    toolbars: { standard: true, formatting: true, drawing: true, outlining: false, picture: 'auto', tables: 'auto', wordart: 'auto' },
+    toolbars: { standard: true, formatting: true, drawing: true, outlining: false, picture: 'auto', tables: 'auto', wordart: 'auto', diagram: 'auto' },
     grid: { show: false, snap: true, size: 6 }, leftW: 196, notesH: 92, leftOpen: true, taskOpen: true,
   };
   const A = (L.app = Object.assign(L.app || {}, {
@@ -61,7 +62,7 @@
   function buildMenus() {
     const autoShapeSub = (group) => ({ custom: (close) => shapeGrid(L.geom.MENU[group], close) });
     const menus = [
-      { label: '&File', items: () => ['new', 'open', 'close', '-', 'save', 'saveAs', 'saveWeb', '-', 'pageSetup', 'printPreview', 'print', '-', 'properties', ...((r) => (r.length ? ['-', ...r] : []))(window.VO ? VO.recentMenuItems(4) : []), '-', 'exitApp'] },
+      { label: '&File', items: () => ['new', 'open', 'close', '-', 'save', 'saveAs', 'saveWeb', '-', 'pageSetup', 'printPreview', 'print', '-', 'properties', ...(L.file.native() ? ['versions'] : []), ...((r) => (r.length ? ['-', ...r] : []))(window.VO ? VO.recentMenuItems(4) : []), '-', 'exitApp'] },
       { label: '&Edit', items: ['undo', 'redo', '-', 'cut', 'copy', 'officeClipboard', 'paste', 'pasteSpecial', '-', 'clear', 'selectAll', 'duplicate', 'deleteSlide', '-', 'find', 'replace'] },
       {
         label: '&View', items: () => ['viewNormal', 'viewSorter', 'showFromStart', 'viewNotes', '-',
@@ -81,15 +82,13 @@
           { label: 'Act&ion Buttons', sub: [{ custom: (close) => shapeGrid(L.geom.MENU['Action Buttons'], close) }] }, 'actionSettings', '-',
           'animSchemes', 'customAnim', 'transitionPane', '-', 'hideSlide'],
       },
-      { label: '&Window', items: () => [{ label: '&1 ' + A.fileName, checked: () => true, run: () => {} }] },
-      { label: '&Help', items: ['help', 'gettingStarted', '-', 'about'] },
+      { label: '&Window', items: () => [{ label: '&1 ' + A.fileName.replace(/&/g, '&&'), raw: true, checked: () => true, run: () => {} }] },
+      { label: '&Help|menu bar', items: ['help', 'showAssistant', '-', 'gettingStarted', '-', 'about'] },
     ];
     void autoShapeSub;
     const row = L.$('#menurow');
     A.menuBar = ui.menuBar(row, menus);
-    const q = h('input', { type: 'text', id: 'helpq', placeholder: 'Type a question for help', 'aria-label': 'Type a question for help' });
-    q.addEventListener('keydown', (e) => { if (e.key === 'Enter') { L.panes.helpQuery = q.value; L.panes.task.show('help'); q.value = ''; E.refocus(); } e.stopPropagation(); });
-    row.appendChild(h('div', { class: 'helpbox' }, q, h('span', { class: 'dd-arrow' })));
+    row.appendChild(ui.searchBox());
   }
 
   function shapeGrid(list, close) {
@@ -107,7 +106,7 @@
     ui.openMenu([
       { label: '&Lines', icon: 'line', sub: ['drawLine', 'drawArrow', 'drawDblArrow', 'drawCurve', 'drawFreeform', 'drawScribble'] },
       { label: 'Co&nnectors', icon: 'elbow', sub: [{ label: 'Straight Connector', icon: 'line', run: () => E.setTool({ kind: 'line', geom: 'straightConnector1' }) }, 'drawElbow', 'drawCurvedConn', { label: 'Elbow Arrow Connector', icon: 'elbow', run: () => E.setTool({ kind: 'line', geom: 'bentConnector3', arrows: 'end' }) }] },
-      ...['Basic Shapes', 'Block Arrows', 'Flowchart', 'Stars and Banners', 'Callouts', 'Action Buttons'].map((g) => ({ label: g.replace(/^(\w)/, '&$1'), icon: { 'Basic Shapes': 'autoshapes', 'Block Arrows': 'arrowStyle', Flowchart: 'diagram', 'Stars and Banners': 'animation', Callouts: 'comment', 'Action Buttons': 'actionSettings' }[g], sub: [{ custom: (close) => shapeGrid(L.geom.MENU[g], close) }] })),
+      ...[['Basic Shapes', '&Basic Shapes'], ['Block Arrows', '&Block Arrows'], ['Flowchart', '&Flowchart'], ['Stars and Banners', '&Stars and Banners'], ['Callouts', '&Callouts'], ['Action Buttons', '&Action Buttons']].map(([g, label]) => ({ label, icon: { 'Basic Shapes': 'autoshapes', 'Block Arrows': 'arrowStyle', Flowchart: 'diagram', 'Stars and Banners': 'animation', Callouts: 'comment', 'Action Buttons': 'actionSettings' }[g], sub: [{ custom: (close) => shapeGrid(L.geom.MENU[g], close) }] })),
       '-', { label: '&More AutoShapes...', icon: 'clipart', run: () => L.panes.task.show('clipart') },
     ], { left: r.left, bottom: r.bottom }, { selectFirst: !at });
   }
@@ -126,7 +125,7 @@
   }
   const lineSVG = (w, dash, extra) => `<svg width="90" height="14" viewBox="0 0 90 14"><path d="M2 7h86" stroke="#000" stroke-width="${w}" ${dash ? `stroke-dasharray="${dash}"` : ''} fill="none"/>${extra || ''}</svg>`;
   function lineStyleMenu(r) {
-    ui.openMenu([{ custom: (close) => listPanel(WEIGHTS.map((w) => ({ html: lineSVG(Math.max(0.5, w * 1.33)), label: w + ' pt', run: () => A.setLineProp({ w }) })).concat([{ label: 'More Lines...', run: () => ui.exec('formatObject', 'Colors and Lines') }]), close) }], r);
+    ui.openMenu([{ custom: (close) => listPanel(WEIGHTS.map((w) => ({ html: lineSVG(Math.max(0.5, w * 1.33)), label: L.t('{0} pt', w), run: () => A.setLineProp({ w }) })).concat([{ label: 'More Lines...', run: () => ui.exec('formatObject', 'Colors and Lines') }]), close) }], r);
   }
   function dashMenu(r) {
     ui.openMenu([{ custom: (close) => listPanel(L.dlg.DASHES.map(([k, n]) => ({ html: lineSVG(2, (L.render.dashArray(k, 2) || '').replace(/,/g, ' ')), label: n, run: () => A.setLineProp({ dash: k }) })), close) }], r);
@@ -159,7 +158,7 @@
       { label: 'Nud&ge', sub: ['nudgeUp', 'nudgeDown', 'nudgeLeft', 'nudgeRight'] },
       { label: '&Align or Distribute', sub: ['alignL', 'alignC', 'alignR', 'alignT', 'alignM', 'alignB', '-', 'distH', 'distV', '-', 'alignToSlide'] },
       { label: 'Rotate or Fl&ip', sub: ['freeRotate', 'rotateLeft', 'rotateRight', '-', 'flipH', 'flipV'] }, '-',
-      { label: 'C&hange AutoShape', enabled: () => E.selected().some((s) => s.type === 'shape' || s.type === 'text'), sub: ['Basic Shapes', 'Block Arrows', 'Flowchart', 'Stars and Banners', 'Callouts', 'Action Buttons'].map((g) => ({ label: g, sub: [{ custom: (close) => { const el = shapeGrid(L.geom.MENU[g], close); L.$$('button', el).forEach((b, i) => { const nb = b.cloneNode(true); nb.addEventListener('click', () => { close(); A.changeAutoShape(L.geom.MENU[g][i]); }); b.replaceWith(nb); }); return el; } }] })) },
+      { label: 'C&hange AutoShape', enabled: () => E.selected().some((s) => s.type === 'shape' || s.type === 'text'), sub: ['Basic Shapes', 'Block Arrows', L.N('Flowchart'), 'Stars and Banners', L.N('Callouts'), 'Action Buttons'].map((g) => ({ label: g, sub: [{ custom: (close) => { const el = shapeGrid(L.geom.MENU[g], close); L.$$('button', el).forEach((b, i) => { const nb = b.cloneNode(true); nb.addEventListener('click', () => { close(); A.changeAutoShape(L.geom.MENU[g][i]); }); b.replaceWith(nb); }); return el; } }] })) },
       'setDefaults',
     ], r);
   }
@@ -179,34 +178,49 @@
       ui.refresh();
     });
   }
+  /* the toolbars' boxes and menus, also used by the ribbon (js/ribbon.js): each call makes a new box */
+  A.parts = {
+    font: (o) => ui.combo(Object.assign({ id: 'tb-font', width: 136, tip: 'Font', options: () => { const d = E.slide() && L.pres.designs[E.slide().design]; return L.fontSections({ major: d?.fonts?.major, minor: d?.fonts?.minor }); }, preview: (v) => `font-family:${L.fontStack(v)};font-size:13px`, note: L.fontNote, listCls: 'fonts', value: () => { const s = textState(); return s ? s.font : ''; }, enabled: () => !!textState(), onChange: (v) => A.setFontName(v) }, o)),
+    size: (o) => ui.combo(Object.assign({ id: 'tb-size', width: 44, tip: 'Font Size', options: () => L.SIZE_LIST, value: () => { const s = textState(); return s && s.sz ? String(L.round(s.sz, 1)) : ''; }, enabled: () => !!textState(), onChange: (v) => A.setFontSize(parseFloat(v)) }, o)),
+    zoom: (o) => ui.combo(Object.assign({ id: 'tb-zoom', width: 64, tip: 'Zoom', options: () => [L.t('Fit'), '400%', '200%', '150%', '100%', '75%', '66%', '50%', '33%', '25%'], value: () => (E.zoom === 'fit' ? L.t('Fit') : E.zoomPct() + '%'), onChange: (v) => { if (/fit/i.test(v) || v === L.t('Fit')) E.setZoom('fit'); else { const n = parseFloat(v); if (n > 0) E.setZoom(n / 100); } } }, o)),
+  };
+  A.menus = {
+    color: (kind) => colorDD(kind), autoShapes: (r) => openAutoShapes(r), draw: (r) => drawMenu(r), lineStyle: (r) => lineStyleMenu(r), dash: (r) => dashMenu(r), arrow: (r) => arrowMenu(r), shadow: (r) => shadowMenu(r),
+    picColor: (r) => ui.openMenu([{ label: '&Automatic', run: () => A.picMode('') }, { label: '&Grayscale', run: () => A.picMode('gray') }, { label: '&Black & White', run: () => A.picMode('bw') }, { label: '&Washout', run: () => A.picMode('wash') }], r),
+    tableBorders: (r) => ui.openMenu([{ custom: (close) => { const g = h('div', { class: 'shape-grid', style: 'grid-template-columns:repeat(4,24px)' }); for (const [k, ic, n] of [['all', 'bordersAll', 'All Borders'], ['out', 'bordersOut', 'Outside Borders'], ['in', 'bordersIn', 'Inside Borders'], ['none', 'bordersNone', 'No Border'], ['t', 'bordersTop', 'Top Border'], ['b', 'bordersBottom', 'Bottom Border'], ['l', 'bordersLeft', 'Left Border'], ['r', 'bordersRight', 'Right Border']]) { const bt = h('button', { type: 'button', 'data-tip': n, 'aria-label': n, html: L.icons.get(ic) }); bt.addEventListener('click', () => { close(); A.tableBorders(k); }); g.appendChild(bt); } return g; } }], r),
+    tableFill: (r, b) => ui.colorMenu(b, { mode: 'fill', effects: true }, async (v) => { if (v && v.none) A.tableFill({ t: 'none' }); else if (v && v.effects) { const f = await L.dlg.fillEffects({ t: 'solid', c: 'accent1' }); if (f) A.tableFill(f); } else if (typeof v === 'string') A.tableFill({ t: 'solid', c: v, a: 1 }); }),
+    waShape: (r) => ui.openMenu(L.render.WARPS.map(([k, n]) => ({ label: n, run: () => A.waSet({ warp: k }), checked: () => { const s = E.primary(); return !!(s && s.wa && (s.wa.warp || 'textPlain') === k); } })), r),
+  };
   function buildToolbars() {
     const host = L.$('#toolbars');
-    const fontCombo = ui.combo({ id: 'tb-font', width: 136, tip: 'Font', options: () => { const d = E.slide() && L.pres.designs[E.slide().design]; return L.fontSections({ major: d?.fonts?.major, minor: d?.fonts?.minor }); }, preview: (v) => `font-family:${L.fontStack(v)};font-size:13px`, note: L.fontNote, listCls: 'fonts', value: () => { const s = textState(); return s ? s.font : ''; }, enabled: () => !!textState(), onChange: (v) => A.setFontName(v) });
-    const sizeCombo = ui.combo({ id: 'tb-size', width: 44, tip: 'Font Size', options: () => L.SIZE_LIST, value: () => { const s = textState(); return s && s.sz ? String(L.round(s.sz, 1)) : ''; }, enabled: () => !!textState(), onChange: (v) => A.setFontSize(parseFloat(v)) });
-    const zoomCombo = ui.combo({ id: 'tb-zoom', width: 52, tip: 'Zoom', options: () => ['Fit', '400%', '200%', '150%', '100%', '75%', '66%', '50%', '33%', '25%'], value: () => (E.zoom === 'fit' ? 'Fit' : E.zoomPct() + '%'), onChange: (v) => { if (/fit/i.test(v)) E.setZoom('fit'); else { const n = parseFloat(v); if (n > 0) E.setZoom(n / 100); } } });
+    const fontCombo = A.parts.font(), sizeCombo = A.parts.size(), zoomCombo = A.parts.zoom();
     A.toolbarsEl = {
       standard: ui.toolbar('standard', 'Standard', ['new', 'open', 'save', '|', 'print', 'printPreview', 'spelling', '|', 'cut', 'copy', 'paste', 'painter', '|', 'undo', 'redo', '|', 'insertChart', 'insertTable', ui.tbButton('tb_tables', { icon: 'tablesBorders' }), 'hyperlink', '|', 'expandAll', 'showFormatting', 'showGrid', ui.tbSplit('viewGray', (r) => ui.openMenu(['viewColor', 'viewGray', 'viewBW'], r)), zoomCombo, 'help']),
       formatting: ui.toolbar('formatting', 'Formatting', [fontCombo, sizeCombo, 'bold', 'italic', 'underline', 'shadowText', '|', 'alignLeft', 'alignCenter', 'alignRight', '|', 'numbering', 'bullets', '|', 'growFont', 'shrinkFont', '|', 'promote', 'demote', '|', ui.tbSplit('fontColor', colorDD('font')), '|', ui.tbButton('slideDesign', { label: 'Design' }), ui.tbButton('newSlide', { label: 'New Slide' })]),
       outlining: ui.toolbar('outlining', 'Outlining', ['promote', 'demote', 'moveParaUp', 'moveParaDown', '|', 'summarySlide', 'showFormatting']),
-      picture: ui.toolbar('picture', 'Picture', ['insertPicture', ui.tbDrop('', 'colorPic', (r) => ui.openMenu([{ label: '&Automatic', run: () => A.picMode('') }, { label: '&Grayscale', run: () => A.picMode('gray') }, { label: '&Black & White', run: () => A.picMode('bw') }, { label: '&Washout', run: () => A.picMode('wash') }], r), 'Color'), 'picMoreContrast', 'picLessContrast', 'picMoreBright', 'picLessBright', '|', 'picCrop', 'rotateLeft', ui.tbDrop('', 'lineStyle', lineStyleMenu, 'Line Style'), '|', ui.tbButton('formatObject', { icon: 'formatPicture' }), 'picTransparent', 'picReset']),
+      picture: ui.toolbar('picture', 'Picture', ['insertPicture', ui.tbDrop('', 'colorPic', A.menus.picColor, 'Color'), 'picMoreContrast', 'picLessContrast', 'picMoreBright', 'picLessBright', '|', 'picCrop', 'rotateLeft', ui.tbDrop('', 'lineStyle', lineStyleMenu, 'Line Style'), '|', ui.tbButton('formatObject', { icon: 'formatPicture' }), 'picTransparent', 'picReset']),
       tables: ui.toolbar('tables', 'Tables and Borders', [ui.tbDrop('', 'dashStyle', (r) => ui.openMenu([{ custom: (close) => listPanel(L.dlg.DASHES.map(([k, n]) => ({ html: lineSVG(2, (L.render.dashArray(k, 2) || '').replace(/,/g, ' ')), label: n, run: () => { A.tblBorder.dash = k; } })), close) }], r), 'Border Style'),
-        ui.tbDrop('', 'lineStyle', (r) => ui.openMenu([{ custom: (close) => listPanel(WEIGHTS.map((w) => ({ html: lineSVG(Math.max(0.5, w * 1.33)), label: w + ' pt', run: () => { A.tblBorder.w = w; } })), close) }], r), 'Border Width'),
+        ui.tbDrop('', 'lineStyle', (r) => ui.openMenu([{ custom: (close) => listPanel(WEIGHTS.map((w) => ({ html: lineSVG(Math.max(0.5, w * 1.33)), label: L.t('{0} pt', w), run: () => { A.tblBorder.w = w; } })), close) }], r), 'Border Width'),
         ui.tbDrop('', 'lineColor', (r, b) => ui.colorMenu(b, { mode: 'plain', grid: true }, (v) => { if (typeof v === 'string') A.tblBorder.c = v; }), 'Border Color'),
-        ui.tbDrop('', 'bordersAll', (r) => ui.openMenu([{ custom: (close) => { const g = h('div', { class: 'shape-grid', style: 'grid-template-columns:repeat(4,24px)' }); for (const [k, ic, n] of [['all', 'bordersAll', 'All Borders'], ['out', 'bordersOut', 'Outside Borders'], ['in', 'bordersIn', 'Inside Borders'], ['none', 'bordersNone', 'No Border'], ['t', 'bordersTop', 'Top Border'], ['b', 'bordersBottom', 'Bottom Border'], ['l', 'bordersLeft', 'Left Border'], ['r', 'bordersRight', 'Right Border']]) { const bt = h('button', { type: 'button', 'data-tip': n, 'aria-label': n, html: L.icons.get(ic) }); bt.addEventListener('click', () => { close(); A.tableBorders(k); }); g.appendChild(bt); } return g; } }], r), 'Borders'),
-        ui.tbDrop('', 'fillColor', (r, b) => ui.colorMenu(b, { mode: 'fill', effects: true }, async (v) => { if (v && v.none) A.tableFill({ t: 'none' }); else if (v && v.effects) { const f = await L.dlg.fillEffects({ t: 'solid', c: 'accent1' }); if (f) A.tableFill(f); } else if (typeof v === 'string') A.tableFill({ t: 'solid', c: v, a: 1 }); }), 'Fill Color'),
+        ui.tbDrop('', 'bordersAll', A.menus.tableBorders, 'Borders'),
+        ui.tbDrop('', 'fillColor', A.menus.tableFill, 'Fill Color'),
         '|', ui.tbDrop('Table', null, (r) => ui.openMenu(['insertTable', '-', 'colLeft', 'colRight', 'rowAbove', 'rowBelow', '-', 'deleteCols', 'deleteRows', '-', 'mergeCells', 'splitCell', '-', 'selectTable', '-', 'tableBordersFill'], r), 'Table'),
         'mergeCells', 'splitCell', '|', 'cellTop', 'cellMiddle', 'cellBottom', '|', 'distRows', 'distCols']),
-      wordart: ui.toolbar('wordart', 'WordArt', ['insertWordArt', ui.tbButton('wordartEdit', { label: 'Edit Text...' }), 'wordartGallery', ui.tbButton('formatObject', { icon: 'formatPicture' }),
-        ui.tbDrop('', 'waShape', (r) => ui.openMenu(L.render.WARPS.map(([k, n]) => ({ label: n, run: () => A.waSet({ warp: k }), checked: () => { const s = E.primary(); return !!(s && s.wa && (s.wa.warp || 'textPlain') === k); } })), r), 'WordArt Shape'),
+      wordart: ui.toolbar('wordart', 'LettersArt', ['insertWordArt', ui.tbButton('wordartEdit', { label: 'Edit Text...' }), 'wordartGallery', ui.tbButton('formatObject', { icon: 'formatPicture' }),
+        ui.tbDrop('', 'waShape', A.menus.waShape, 'LettersArt Shape'),
         'waSameHeight', 'waVertical',
-        ui.tbDrop('', 'alignCenter', (r) => ui.openMenu([['l', '&Left Align'], ['ctr', '&Center'], ['r', '&Right Align']].map(([k, n]) => ({ label: n, run: () => A.waSet({ algn: k }) })), r), 'WordArt Alignment'),
-        ui.tbDrop('', 'charSpacing', (r) => ui.openMenu([[-3, '&Very Tight'], [-1.5, '&Tight'], [0, '&Normal'], [2, '&Loose'], [4, 'V&ery Loose']].map(([k, n]) => ({ label: n, run: () => A.waSet({ spc: k }) })), r), 'WordArt Character Spacing')]),
+        ui.tbDrop('', 'alignCenter', (r) => ui.openMenu([['l', '&Left Align'], ['ctr', '&Center'], ['r', '&Right Align']].map(([k, n]) => ({ label: n, run: () => A.waSet({ algn: k }) })), r), 'LettersArt Alignment'),
+        ui.tbDrop('', 'charSpacing', (r) => ui.openMenu([[-3, '&Very Tight'], [-1.5, '&Tight|spacing'], [0, '&Normal'], [2, '&Loose'], [4, 'V&ery Loose']].map(([k, n]) => ({ label: n, run: () => A.waSet({ spc: k }) })), r), 'LettersArt Character Spacing')]),
       master: ui.toolbar('master', 'Slide Master View', ['insertTitleMaster', 'deleteTitleMaster', '|', ui.tbButton('closeMaster', { label: 'Close Master View' })]),
       sorter: ui.toolbar('sorter', 'Slide Sorter', ['hideSlide', 'rehearse', '|', 'summarySlide', 'speakerNotes', '|', ui.tbButton('transitionPane', { label: 'Transition' }), ui.tbButton('slideDesign', { label: 'Design' }), ui.tbButton('newSlide', { label: 'New Slide' })]),
     };
     const row1 = h('div', { class: 'tb-row' }, A.toolbarsEl.standard);
     const row2 = h('div', { class: 'tb-row' }, A.toolbarsEl.formatting, A.toolbarsEl.outlining);
-    const row3 = h('div', { class: 'tb-row' }, A.toolbarsEl.picture, A.toolbarsEl.tables, A.toolbarsEl.wordart, A.toolbarsEl.master, A.toolbarsEl.sorter);
+    /* SmartArt (js/diagram.js): the Diagram toolbar of a selected diagram */
+    const DGM = () => L.diagram;
+    A.toolbarsEl.diagram = ui.toolbar('diagram', 'Diagram', [ui.tbSplit('diagramAddShape', (r) => ui.openMenu(['diagramAddAfter', 'diagramAddBefore', 'diagramAddAbove', 'diagramAddBelow'], r)), 'diagramPromote', 'diagramDemote', 'diagramMoveUp', 'diagramMoveDown', '|',
+      ui.tbDrop('&Layout', 'layout', (r) => DGM().layoutMenu(r), 'Change Layout'), ui.tbDrop('', 'colorPic', (r) => DGM().colorsMenu(r), 'Change Colors'), ui.tbDrop('', 'themes', (r) => DGM().styleMenu(r), 'IntelliArt Styles'), '|', 'diagramTextPane', 'diagramReset', 'diagramToShapes']);
+    const row3 = h('div', { class: 'tb-row' }, A.toolbarsEl.picture, A.toolbarsEl.tables, A.toolbarsEl.wordart, A.toolbarsEl.diagram, A.toolbarsEl.master, A.toolbarsEl.sorter);
     host.append(row1, row2, row3);
     A.tbRows = [row1, row2, row3];
     /* drawing toolbar */
@@ -235,12 +249,20 @@
     if (id === 'picture') return sel.some((s) => s.type === 'image');
     if (id === 'tables') return sel.some((s) => s.type === 'table');
     if (id === 'wordart') return sel.some((s) => s.type === 'wordart');
+    if (id === 'diagram') return !!(L.diagram && L.diagram.current());
     return false;
   }
-  A.toggleToolbar = (id) => { const v = A.opts.toolbars[id]; A.opts.toolbars[id] = v === true ? (['picture', 'tables', 'wordart'].includes(id) ? false : false) : true; A.saveOpts(); A.updateToolbars(); };
+  /** what is selected or shown, for the ribbon's contextual tabs: 'picture', 'table', 'wordart', 'shape', 'diagram', 'master' */
+  A.inContext = (k) => {
+    if (k === 'master') return A.view === 'master';
+    if (k === 'shape') { const p = E.primary && E.primary(); return !!(p && !p.wa && ['shape', 'line', 'group', 'text'].includes(p.type) && !(L.diagram && L.diagram.of(p))); }
+    return ctxToolbar(k === 'table' ? 'tables' : k);
+  };
+  A.toggleToolbar = (id) => { const v = A.opts.toolbars[id]; A.opts.toolbars[id] = v === true ? (['picture', 'tables', 'wordart', 'diagram'].includes(id) ? false : false) : true; A.saveOpts(); A.updateToolbars(); };
   A.updateToolbars = function () {
     if (!A.toolbarsEl) return;
-    for (const id of ['standard', 'formatting', 'drawing', 'outlining', 'picture', 'tables', 'wordart']) A.toolbarsEl[id].hidden = !A.tbShown(id) || (A.view === 'preview');
+    if (E.holdLayout && E.holdLayout(A.updateToolbars)) return;   /* not under a press on the slide (editor.js) */
+    for (const id of ['standard', 'formatting', 'drawing', 'outlining', 'picture', 'tables', 'wordart', 'diagram']) A.toolbarsEl[id].hidden = !A.tbShown(id) || (A.view === 'preview');
     A.toolbarsEl.outlining.hidden = !(A.opts.toolbars.outlining === true || (L.panes.left.tab === 'outline' && A.view === 'normal' && A.opts.toolbars.outlining !== false && false));
     A.toolbarsEl.master.hidden = A.view !== 'master';
     A.toolbarsEl.sorter.hidden = A.view !== 'sorter';
@@ -263,17 +285,16 @@
     sb.append(A.sbSlide, A.sbDesign, A.sbMsg, A.sbLang, A.sbZoom);
     L.bus.on('zoom', () => { A.sbZoom.firstChild.textContent = E.zoomPct() + '%'; zr.value = E.zoomPct(); ui.refresh(); });
   }
-  A.status = (msg) => { if (!A.sbMsg) return; A.sbMsg.textContent = msg; clearTimeout(statusTimer); statusTimer = setTimeout(() => { A.sbMsg.textContent = ''; }, 3000); };
+  A.status = (msg) => { if (!A.sbMsg) return; A.sbMsg.textContent = L.t(msg); clearTimeout(statusTimer); statusTimer = setTimeout(() => { A.sbMsg.textContent = ''; }, 3000); };
   A.updateStatus = function () {
     if (!A.sbSlide) return;
     const n = L.pres.slides.length;
-    if (A.view === 'master') A.sbSlide.textContent = E.masterKind === 'title' ? 'Title Master' : 'Slide Master';
-    else if (A.view === 'sorter') A.sbSlide.textContent = 'Slide Sorter';
-    else A.sbSlide.textContent = n ? `Slide ${E.idx + 1} of ${n}` : 'No slides';
-    const d = E.design();
-    A.sbDesign.textContent = d ? d.name : '';
+    if (A.view === 'master') A.sbSlide.textContent = E.masterKind === 'title' ? L.t('Title Master') : L.t('Slide Master');
+    else if (A.view === 'sorter') A.sbSlide.textContent = L.t('Slide Sorter');
+    else A.sbSlide.textContent = n ? L.t('Slide {0} of {1}', E.idx + 1, n) : L.t('No slides');
+    A.sbDesign.textContent = M.designName(E.design());
   };
-  A.updateTitle = () => { document.title = `${A.fileName} - Lectern 2003`; };
+  A.updateTitle = () => { document.title = `${L.file.titled(A.fileName)} - Lectern`; };
 
   /* ================= views ================= */
   A.setView = function (v) {
@@ -339,19 +360,28 @@
   };
   async function confirmDiscard() {
     if (!L.hist.dirty) return true;
-    const r = await ui.msg(`Do you want to save the changes you made to ${A.fileName}?`, { icon: 'warn', buttons: ['&Yes', '&No', 'Cancel'] });
+    const r = await ui.msg(L.t('Do you want to save the changes you made to {0}?', A.fileName), { icon: 'warn', buttons: ['&Yes', '&No', 'Cancel'] });
     if (r === 0) return await A.save() === 'saved';
     if (r === 1 && window.VO) VO.discard(L.pres);   // its unsaved version goes too
     return r === 1;
   }
+  /** is the presentation an untouched new one, which an opened file may replace? */
+  const pristine = () => !L.hist.dirty && !A.saved && /^Presentation\d+$/.test(A.fileName);
+  /** the desktop app keeps one presentation per window: a new one there opens in a window of its own; true then */
+  const elsewhere = (start) => {
+    if (!(window.VO && VO.oneDocument) || pristine()) return false;
+    VO.go(VO.url('lectern', start)).catch((e) => ui.msg(String(e), { icon: 'error' }));
+    return true;
+  };
   A.newPresentation = async function () {
-    if (!(await confirmDiscard())) return;
+    if (elsewhere({ new: true }) || !(await confirmDiscard())) return;
     A.untitled = (A.untitled || 1) + 1;
     A.loadPres(M.newPresentation(Object.assign({ design: 'default' }, A.newSize())), 'Presentation' + A.untitled);
     if (A.opts.startupPane) L.panes.task.show('layout');
   };
   /** a new presentation from one of the content templates (templates.js) */
   A.newFromTemplate = async function (id) {
+    if (elsewhere({ template: id })) return;
     const pres = L.templates && L.templates.build(id, A.newSize());
     if (!pres || !(await confirmDiscard())) return;
     A.untitled = (A.untitled || 1) + 1;
@@ -363,20 +393,23 @@
   A.exit = async function () { if (await confirmDiscard() && window.VO) VO.exit(); };
   A.closePresentation = async function () {
     if (!(await confirmDiscard())) return;
+    if (window.VO && VO.oneDocument) { VO.exit(); return; }   // its window closes
     A.loadPres(M.newPresentation(Object.assign({ design: 'default' }, A.newSize())), 'Presentation1');
   };
   A.openDialog = async function () {
+    if (window.VO && VO.oneDocument) return VO.openDialog();
     const files = await L.pickFiles('.pptx,.ppsx,.potx,.pptm,.potm,.ppsm,.txt,application/vnd.openxmlformats-officedocument.presentationml.presentation');
     if (files[0]) A.openFile(files[0]);
   };
   A.openFile = async function (file) {
+    if (window.VO && await VO.elsewhere(file)) return;   // the desktop app: a window of its own
     if (/\.txt$/i.test(file.name)) { if (!(await confirmDiscard())) return; const text = await L.readAsText(file); const pres = M.newPresentation(Object.assign({ design: 'default', empty: true }, A.newSize())); A.loadPres(pres, file.name.replace(/\.txt$/i, '')); A.outlineToSlides(text, 0); return; }
-    if (/\.ppt$/i.test(file.name)) { ui.msg(`${file.name} is in the older binary PowerPoint 97–2003 format. Open it in PowerPoint, Keynote, Google Slides or LibreOffice and save it as .pptx, then open the .pptx here.`, { icon: 'warn' }); return; }
+    if (/\.ppt$/i.test(file.name)) { ui.msg(L.t('{0} is in the older binary PowerPoint 97–2003 format. Open it in PowerPoint, Keynote, Google Slides or LibreOffice and save it as .pptx, then open the .pptx here.', file.name), { icon: 'warn' }); return; }
     if (!(await confirmDiscard())) return;
-    ui.busy(true, `Opening ${file.name}...`);
+    ui.busy(true, L.t('Opening {0}...', file.name));
     try {
       const buf = await L.readAsArrayBuffer(file);
-      const progress = (i, n) => ui.busy(true, `Opening ${file.name}... (slide ${i} of ${n})`);
+      const progress = (i, n) => ui.busy(true, L.t('Opening {0}... (slide {1} of {2})', file.name, i, n));
       let pres = null, password, wrong = false;
       for (;;) {
         try { pres = await L.pptx.read(buf, { progress, password }); break; } catch (e) {
@@ -386,7 +419,7 @@
           wrong = e.code === 'badpassword';
           password = await ui.password(file.name, wrong);
           if (password == null) return;
-          ui.busy(true, `Opening ${file.name}...`);
+          ui.busy(true, L.t('Opening {0}...', file.name));
         }
       }
       if (!pres.slides.length) pres.slides.push(M.newSlide(pres, 'title', Object.keys(pres.designs)[0]));
@@ -396,29 +429,45 @@
       ui.busy(false);
       if (pres.repaired) {
         const lost = pres.repaired.parts.filter((p) => /slides\/slide\d+\.xml$/.test(p)).length;
-        ui.msg(`${L.APP} found a problem with content in ${file.name} and repaired the presentation.` + (lost ? `\n${lost} slide${lost > 1 ? 's' : ''} could not be recovered.` : '\nCheck the slides before you save over the original.'), { icon: 'warn' });
+        ui.msg(L.t('{0} found a problem with content in {1} and repaired the presentation.', L.APP, file.name) + '\n' + (lost > 1 ? L.t('{0} slides could not be recovered.', lost) : lost ? L.t('1 slide could not be recovered.') : L.t('Check the slides before you save over the original.')), { icon: 'warn' });
       } else if (/\.pps[xm]$/i.test(file.name)) L.show.start({ from: 0 });
     } catch (e) {
       ui.busy(false);
       console.error(e);
-      if (e && e.code === 'ole') ui.msg(e.message, { icon: 'warn' });
-      else ui.msg(`${L.APP} can't read ${file.name}. ${e && e.message ? e.message : ''}\nMake sure the file is a PowerPoint 2007 or later presentation (.pptx).`, { icon: 'error' });
+      if (e && e.code === 'ole') ui.msg(L.t(e.message), { icon: 'warn' });
+      else ui.msg(L.t('{0} can\'t read {1}. {2}\nMake sure the file is a PowerPoint 2007 or later presentation (.pptx).', L.APP, file.name, e && e.message ? L.t(e.message) : ''), { icon: 'error' });
     }
   };
+  /* what Lectern saves, for the desktop app's Save dialog (L.file): the presentation types are saves, the rest exports */
+  L.file.types = [{ id: 'pptx', label: L.N('PowerPoint Presentation (*.pptx)'), ext: ['pptx'] }, { id: 'pptm', label: L.N('Macro-Enabled Presentation (*.pptm)'), ext: ['pptm'] },
+    { id: 'ppsx', label: L.N('PowerPoint Show (*.ppsx)'), ext: ['ppsx'] }, { id: 'ppsm', label: L.N('Macro-Enabled Show (*.ppsm)'), ext: ['ppsm'] },
+    { id: 'potx', label: L.N('Design Template (*.potx)'), ext: ['potx'] }, { id: 'potm', label: L.N('Macro-Enabled Template (*.potm)'), ext: ['potm'] },
+    { id: 'pdf', label: L.N('PDF, one slide per page (*.pdf)'), ext: ['pdf'] }, { id: 'html', label: L.N('Single File Web Page (*.html)'), ext: ['html', 'htm'] },
+    { id: 'png', label: L.N('PNG Graphics Format, current slide (*.png)'), ext: ['png'] }, { id: 'txt', label: L.N('Outline (*.txt)'), ext: ['txt'] }];
+  const PRES_TYPE = /^(pptx|pptm|ppsx|ppsm|potx|potm)$/;
+  /** Save: the presentation's own file (the desktop app: in place, when it has one it may change), else Save As */
   A.save = async function () {
-    if (!A.saved) return A.saveAs();
-    return A.exportAs(A.fileType || 'pptx', A.fileName);
+    if (!A.saved || (L.file.native() && !L.file.inPlace())) return A.saveAs();
+    return A.exportAs(A.fileType || 'pptx', A.fileName, L.file.native() ? 'save' : undefined);
   };
   A.saveAs = function () {
+    /* the desktop app: the system's Save dialog picks the name and type, then the presentation is written there */
+    if (L.file.native()) return (async () => {
+      const c = await L.file.choose('saveAs', PRES_TYPE.test(A.fileType) ? A.fileType : 'pptx', A.fileName);
+      return c ? A.exportAs(c.type, c.name, 'chosen') : 'declined';
+    })();
     return new Promise(resolve => {
       let writing = false;
       const dialog = L.dlg.saveAs(async (name, type) => { writing = true; resolve(await A.exportAs(type, name)); });
       dialog.done.then(() => { if (!writing) resolve('declined'); });
     });
   };
-  A.exportAs = async function (type, name) {
+  /** writes the presentation as `type`: a download (web), or in the desktop app (`how`) its own file ('save') or what
+   *  the Save dialog picked ('chosen'); without `how` there, an export that asks where */
+  A.exportAs = async function (type, name, how) {
     name = name || A.fileName;
     if (TE.active()) TE.sync();
+    const pres = L.pres, before = window.VO ? VO.changeCount(pres) : 0;
     if (L.panes.left.tab === 'outline') L.panes.left.commitOutline();
     ui.busy(true, 'Saving...');
     try {
@@ -431,15 +480,19 @@
       ui.busy(false);
       if (!blob) return;
       const losses = L.opc.formats[type] ? await ui.compatibility(L.pres, blob.dropped) : [];
-      if (losses === null) return 'declined';
-      const r = await L.saveFile(`${name}.${ext}`, blob);
+      if (losses === null) { if (how === 'chosen') L.file.cancel(); return 'declined'; }
+      const w = how ? await L.file.write(blob, how, { type, name: `${name}.${ext}` }) : { result: await L.saveFile(`${name}.${ext}`, blob) };
+      const r = w.result;
+      if (w.name) name = w.name.replace(/\.[^.]+$/, '');   // as the Save dialog left it
       if (r === 'saved') L.opc.acknowledge(L.pres, losses);
-      if (r === 'saved' && /^(pptx|pptm|ppsx|ppsm|potx|potm)$/.test(type)) { A.fileName = name; A.fileType = type; A.saved = true; A.updateTitle(); L.hist.dirty = false; A.status(`Saved ${name}.${ext}`); if (window.VO) VO.saved(`${name}.${ext}`, blob, L.pres); }
+      /* the presentation's own file now: on the web any save of a presentation type; the desktop app's Save, or a Save As it bound */
+      const own = !L.file.native() || how === 'save' || w.bound;
+      if (r === 'saved' && own && PRES_TYPE.test(type)) { A.fileName = name; A.fileType = type; A.saved = true; A.updateTitle(); L.hist.dirty = !!window.VO && VO.changeCount(pres) !== before; A.status(L.t('Saved {0}', `${name}.${ext}`)); if (window.VO) VO.saved(`${name}.${ext}`, blob, L.pres); }
       return r;
     } catch (e) {
       ui.busy(false);
       console.error(e);
-      ui.msg(`The file could not be saved: ${e.message || e}`, { icon: 'error' });
+      ui.msg(L.t('The file could not be saved: {0}', e.message || e), { icon: 'error' });
     }
   };
   A.outlineText = function () {
@@ -484,7 +537,7 @@
     g.drawImage(img, 0, 0, w, hh);
     return c;
   };
-  const canvasBlob = (c, type, q) => new Promise((res, rej) => { try { c.toBlob((b) => (b ? res(b) : rej(new Error('This browser blocked the image export.'))), type, q); } catch (e) { rej(new Error('This browser blocked the image export.')); } });
+  const canvasBlob = (c, type, q) => new Promise((res, rej) => { try { c.toBlob((b) => (b ? res(b) : rej(new Error(L.t('This browser blocked the image export.')))), type, q); } catch (e) { rej(new Error(L.t('This browser blocked the image export.'))); } });
   A.slideCanvas = function (slide, width, map) {
     const pres = L.pres;
     const el = L.render.slide(pres, slide, { mode: 'thumb', index: pres.slides.indexOf(slide) });
@@ -501,7 +554,7 @@
       const css = slideCSS(true);
       let n = 0;
       for (const p of els) {
-        ui.busy(true, `Creating PDF... (page ${++n} of ${els.length})`);
+        ui.busy(true, L.t('Creating PDF... (page {0} of {1})', ++n, els.length));
         const w = p.offsetWidth, hh = p.offsetHeight;
         const clone = p.cloneNode(true);
         clone.style.margin = '0'; clone.style.boxShadow = 'none'; clone.style.position = 'relative';
@@ -514,7 +567,7 @@
       const slides = L.pres.slides.filter((s) => !s.hidden);
       let n = 0;
       for (const s of slides) {
-        ui.busy(true, `Creating PDF... (slide ${++n} of ${slides.length})`);
+        ui.busy(true, L.t('Creating PDF... (slide {0} of {1})', ++n, slides.length));
         const c = await A.slideCanvas(s, Math.round(L.pres.W * 2.5), map);
         pages.push({ jpeg: await jpeg(c), iw: c.width, ih: c.height, pw: L.pres.W, ph: L.pres.H });
       }
@@ -524,7 +577,7 @@
   A.previewPDF = async function () {
     ui.busy(true, 'Creating PDF...');
     try { const blob = await A.buildPDF('preview'); ui.busy(false); await L.saveFile(`${A.fileName} (${{ slides: 'Slides', handouts: 'Handouts', notes: 'Notes', outline: 'Outline' }[A.printOpts.what] || 'Print'}).pdf`, blob); }
-    catch (e) { ui.busy(false); console.error(e); ui.msg('The PDF could not be created: ' + (e.message || e), { icon: 'error' }); }
+    catch (e) { ui.busy(false); console.error(e); ui.msg(L.t('The PDF could not be created: {0}', e.message || e), { icon: 'error' }); }
   };
   A.buildWebPage = async function () {
     const pres = L.pres;
@@ -533,16 +586,19 @@
     const notes = pres.slides.filter((s) => !s.hidden).map((s) => s.notes || '');
     const title = L.esc(pres.props.title || A.fileName);
     const fonts = await L.embedFonts(slides.join(''));   // the stand-ins the slides name, inside the page
-    return new Blob([`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>
-<style>${fonts}</style>
-<style>html,body{height:100%;margin:0;background:#1e1e1e;color:#eee;font:13px Tahoma,Verdana,sans-serif}#stage{position:absolute;left:0;top:0;transform-origin:0 0}#bar{position:fixed;left:0;right:0;bottom:0;display:flex;gap:8px;align-items:center;justify-content:center;padding:8px;background:rgba(0,0,0,.6)}button{font:inherit;padding:4px 12px}#notes{max-width:70ch;white-space:pre-wrap;color:#ccc}${slideCSS()}</style></head><body>
-<div id="stage"></div><div id="bar"><button id="prev" aria-label="Previous slide">◀</button><span id="num"></span><button id="next" aria-label="Next slide">▶</button></div>
-<script>const S=${JSON.stringify(slides)};const N=${JSON.stringify(notes)};const W=${pres.W},H=${pres.H};let i=0;const st=document.getElementById('stage');
+    /* the page's data as script text: JSON with every < escaped, so no note or slide can end the <script> */
+    const json = (x) => JSON.stringify(x).replace(/</g, '\\u003c');
+    const script = `const S=${json(slides)};const N=${json(notes)};const W=${pres.W},H=${pres.H};let i=0;const st=document.getElementById('stage');
 function fit(){const k=Math.min(innerWidth/W,(innerHeight-44)/H);st.style.transform='translate('+((innerWidth-W*k)/2)+'px,'+((innerHeight-44-H*k)/2)+'px) scale('+k+')';}
 function show(n){i=Math.max(0,Math.min(S.length-1,n));st.innerHTML=S[i];document.getElementById('num').textContent=(i+1)+' / '+S.length;}
 document.getElementById('prev').onclick=()=>show(i-1);document.getElementById('next').onclick=()=>show(i+1);
 addEventListener('keydown',e=>{if(['ArrowRight','PageDown',' ','Enter'].includes(e.key))show(i+1);if(['ArrowLeft','PageUp','Backspace'].includes(e.key))show(i-1);if(e.key==='Home')show(0);if(e.key==='End')show(S.length-1);});
-addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type: 'text/html' });
+addEventListener('resize',fit);fit();show(0);`;
+    return new Blob([`<!doctype html><html lang="en"><head><meta charset="utf-8">${L.exportCSP(script)}<meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>
+<style>${fonts}</style>
+<style>html,body{height:100%;margin:0;background:#1e1e1e;color:#eee;font:13px Tahoma,Verdana,sans-serif}#stage{position:absolute;left:0;top:0;transform-origin:0 0}#bar{position:fixed;left:0;right:0;bottom:0;display:flex;gap:8px;align-items:center;justify-content:center;padding:8px;background:rgba(0,0,0,.6)}button{font:inherit;padding:4px 12px}#notes{max-width:70ch;white-space:pre-wrap;color:#ccc}${slideCSS()}</style></head><body>
+<div id="stage"></div><div id="bar"><button id="prev" aria-label="Previous slide">◀</button><span id="num"></span><button id="next" aria-label="Next slide">▶</button></div>
+<script>${script}<\/script></body></html>`], { type: 'text/html' });
   };
 
   /* ================= history ================= */
@@ -679,7 +735,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     const cs = L.clone(d.colors);
     const rows = M.SCHEME_SLOTS.map(([k, label]) => {
       const p = L.dlg.colorPick(cs[k], (c) => { cs[k] = c[0] === '#' ? c : M.resolveColor(c, d); });
-      return ui.field(label + ':', p, { cls: 'wide' });
+      return ui.field(label, p, { cls: 'wide' });   /* named as in Office's list of scheme colours, without a colon */
     });
     ui.dialog({ title: 'Edit Color Scheme', body: h('div', { class: 'col' }, ...rows), width: 360, buttons: [{ label: '&Apply', primary: true, onClick: () => A.applyColorScheme(cs, true) }, { label: 'Cancel' }] });
   };
@@ -700,7 +756,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
       M.gcDesigns(L.pres);
       E.render();
       L.bus.emit('slides-changed', { design: true });
-    } catch (e) { ui.busy(false); ui.msg('That design could not be read: ' + e.message, { icon: 'error' }); }
+    } catch (e) { ui.busy(false); ui.msg(L.t('That design could not be read: {0}', e.message), { icon: 'error' }); }
   };
   /** move a slide to a design, relocating untouched placeholders */
   A.moveToDesign = function (s, d) {
@@ -885,7 +941,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     if (!s) return;
     const ta = h('textarea', { id: 'sn-text', rows: 10, style: 'width:100%' });
     ta.value = s.notes || '';
-    ui.dialog({ title: 'Speaker Notes', body: h('div', { class: 'col' }, h('label', { for: 'sn-text', text: `Slide ${E.idx + 1}:` }), ta), width: 420, buttons: [{ label: 'Close', primary: true, onClick: () => { if (ta.value !== (s.notes || '')) { L.hist.push('Notes'); s.notes = ta.value; L.panes.notes.render(); } } }] });
+    ui.dialog({ title: 'Speaker Notes', body: h('div', { class: 'col' }, h('label', { for: 'sn-text', text: L.t('Slide {0}:', E.idx + 1) }), ta), width: 420, buttons: [{ label: 'Close', primary: true, onClick: () => { if (ta.value !== (s.notes || '')) { L.hist.push(L.N('Notes')); s.notes = ta.value; L.panes.notes.render(); } } }] });
   };
   A.outlineToSlides = function (text, at) {
     const lines = String(text).replace(/\r/g, '').split('\n');
@@ -940,7 +996,8 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
   A.deleteSel = function () {
     const shapes = E.selected();
     if (!shapes.length) return;
-    E.commit('Clear', () => {
+    if (L.diagram && L.diagram.deleteKids(shapes)) return;
+    E.commit(L.N('Clear'), () => {
       const slide = E.slide();
       for (const sh of shapes) {
         const f = E.find(sh.id);
@@ -957,7 +1014,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
   A.duplicateSel = function () {
     const shapes = E.selected().filter((s) => !E.find(s.id).parent);
     if (!shapes.length) return;
-    E.commit('Duplicate', () => {
+    E.commit(L.N('Duplicate'), () => {
       const slide = E.slide();
       E.sel = M.dupMany(shapes).map((c) => { M.translate(c, 12, 12); slide.shapes.push(c); return c.id; });
     });
@@ -970,7 +1027,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
   A.group = function () {
     const shapes = E.selected().filter((s) => !E.find(s.id).parent);
     if (shapes.length < 2) return;
-    E.commit('Group', () => {
+    E.commit(L.N('Group'), () => {
       const slide = E.slide();
       const order = slide.shapes.filter((s) => shapes.includes(s));
       const at = slide.shapes.indexOf(order[order.length - 1]);
@@ -986,7 +1043,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
   A.ungroup = function () {
     const groups = E.selected().filter((s) => s.type === 'group');
     if (!groups.length) return;
-    E.commit('Ungroup', () => {
+    E.commit(L.N('Ungroup'), () => {
       const slide = E.slide();
       const out = [];
       for (const g of groups) {
@@ -1013,7 +1070,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
   A.order = function (op) {
     const shapes = E.selected();
     if (!shapes.length) return;
-    E.commit('Order', () => {
+    E.commit(L.N('Order'), () => {
       for (const sh of op === 'front' || op === 'forward' ? shapes.slice().reverse() : shapes) {
         const f = E.find(sh.id);
         const list = f.list;
@@ -1030,7 +1087,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     const toSlide = A.opts.alignToSlide || shapes.length === 1;
     const bb = (s) => (s.type === 'group' ? M.groupBounds(s) : L.rotBounds(s));
     const ref = toSlide ? { x: 0, y: 0, w: L.pres.W, h: L.pres.H } : L.unionBounds(shapes.map(bb));
-    E.commit('Align', () => {
+    E.commit(L.N('Align'), () => {
       for (const s of shapes) {
         const b = bb(s);
         let dx = 0, dy = 0;
@@ -1049,7 +1106,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     const ref = A.opts.alignToSlide ? { x: 0, y: 0, w: L.pres.W, h: L.pres.H } : L.unionBounds(items.map((i) => i.b));
     const total = items.reduce((a, i) => a + (axis === 'h' ? i.b.w : i.b.h), 0);
     const gap = ((axis === 'h' ? ref.w : ref.h) - total) / Math.max(1, items.length - 1);
-    E.commit('Distribute', () => {
+    E.commit(L.N('Distribute'), () => {
       let pos = axis === 'h' ? ref.x : ref.y;
       for (const it of items) {
         if (axis === 'h') M.translate(it.s, pos - it.b.x, 0); else M.translate(it.s, 0, pos - it.b.y);
@@ -1057,8 +1114,8 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
       }
     });
   };
-  A.rotate = (deg) => { if (!E.selected().every(M.canRotate)) return; E.commit('Rotate', () => { for (const s of E.selected()) { if (s.type === 'line') { const [a, b] = L.geom.lineEnds(s); const cx = s.x + s.w / 2, cy = s.y + s.h / 2; L.geom.setLineEnds(s, L.rotPt(a[0], a[1], cx, cy, deg), L.rotPt(b[0], b[1], cx, cy, deg)); } else s.rot = (((s.rot || 0) + deg) % 360 + 360) % 360; } }); };
-  A.flip = (axis) => { if (!E.selected().every(M.canRotate)) return; E.commit('Flip', () => {
+  A.rotate = (deg) => { if (!E.selected().every(M.canRotate)) return; E.commit(L.N('Rotate'), () => { for (const s of E.selected()) { if (s.type === 'line') { const [a, b] = L.geom.lineEnds(s); const cx = s.x + s.w / 2, cy = s.y + s.h / 2; L.geom.setLineEnds(s, L.rotPt(a[0], a[1], cx, cy, deg), L.rotPt(b[0], b[1], cx, cy, deg)); } else s.rot = (((s.rot || 0) + deg) % 360 + 360) % 360; } }); };
+  A.flip = (axis) => { if (!E.selected().every(M.canRotate)) return; E.commit(L.N('Flip'), () => {
     for (const s of E.selected()) {
       if (s.type === 'group') { const g = s; for (const k of g.kids) { if (axis === 'h') { k.x = g.x + g.w - (k.x - g.x) - k.w; k.flipH = !k.flipH; } else { k.y = g.y + g.h - (k.y - g.y) - k.h; k.flipV = !k.flipV; } k.rot = k.rot ? 360 - k.rot : 0; } continue; }
       if (axis === 'h') s.flipH = !s.flipH; else s.flipV = !s.flipV;
@@ -1069,7 +1126,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     const step = fine ? 1 : E.grid.snap ? E.grid.size : 1;
     const shapes = E.selected();
     if (!shapes.length) return;
-    L.hist.push('Nudge', 'nudge');
+    L.hist.push(L.N('Nudge'), 'nudge');
     for (const s of shapes) { M.translate(s, dx * step, dy * step); const f = E.find(s.id); if (f.parent) E.fitGroup(f.parent); }
     if (E.view === 'master') E.syncMaster();
     if (shapes.length === 1 && !E.find(shapes[0].id).parent) E.renderShape(shapes[0].id); else E.render();
@@ -1129,28 +1186,28 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
       }
     });
   };
-  A.setShadow = (sh) => E.commit('Shadow', () => { for (const s of E.selected()) { if (s.type === 'wordart') s.wa.shadow = L.clone(sh); else s.shadow = L.clone(sh); } });
+  A.setShadow = (sh) => E.commit(L.N('Shadow'), () => { for (const s of E.selected()) { if (s.type === 'wordart') s.wa.shadow = L.clone(sh); else s.shadow = L.clone(sh); } });
   /* text formatting */
   A.applyFontColor = function (c) {
     L.fmt.run((r) => { const n = Object.assign({}, r); if (c) n.color = c; else delete n.color; delete n.fill; return n; }, 'Font Color', (wa) => { wa.fill = c ? { t: 'solid', c, a: 1 } : { t: 'solid', c: 'tx1', a: 1 }; });
   };
-  A.setFontName = (v) => { if (!v) return; L.addRecentFont(v); L.fmt.run((r) => Object.assign({}, r, { font: v }), 'Font', (wa) => { wa.font = v; }); };
+  A.setFontName = (v) => { if (!v) return; L.addRecentFont(v); L.fmt.run((r) => Object.assign({}, r, { font: v }), L.N('Font'), (wa) => { wa.font = v; }); };
   A.setFontSize = (v) => { if (!(v > 0)) return; v = L.clamp(v, 1, 4000); L.fmt.run((r) => Object.assign({}, r, { sz: v }), 'Font Size'); };
   A.toggleRun = function (key) {
     const st = L.fmt.state();
     if (!st) return;
     const on = !st[key];
-    const label = { b: 'Bold', i: 'Italic', u: 'Underline', shd: 'Shadow' }[key];
+    const label = { b: L.N('Bold'), i: L.N('Italic'), u: L.N('Underline'), shd: L.N('Shadow') }[key];
     L.fmt.run((r) => { const n = Object.assign({}, r); if (key === 'u') { if (on) n.u = 'sng'; else n.u = 'none'; } else n[key] = on ? true : false; return n; }, label, (wa) => { if (key === 'b' || key === 'i') wa[key] = on; if (key === 'shd') wa.shadow = on ? { c: '#000000', a: 0.4, dx: 3, dy: 3, blur: 0 } : null; });
   };
   A.toggleBaseline = function (v) {
     const st = L.fmt.state();
     const cur = st && st.r && st.r.base;
-    L.fmt.run((r) => { const n = Object.assign({}, r); if (cur === v) delete n.base; else n.base = v; return n; }, v > 0 ? 'Superscript' : 'Subscript');
+    L.fmt.run((r) => { const n = Object.assign({}, r); if (cur === v) delete n.base; else n.base = v; return n; }, v > 0 ? L.N('Superscript') : L.N('Subscript'));
   };
   A.setAlign = (a) => {
     if (!TE.active() && E.selected().some((s) => s.type === 'wordart')) { A.waSet({ algn: a }); return; }
-    L.fmt.para((p) => { p.pp = Object.assign({}, p.pp, { algn: a }); }, 'Alignment');
+    L.fmt.para((p) => { p.pp = Object.assign({}, p.pp, { algn: a }); }, L.N('Alignment'));
   };
   A.stepFont = function (d) {
     const st = L.fmt.state();
@@ -1171,10 +1228,10 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
       if (!off && cls === 'other' && !(p.pp.marL > 0)) { p.pp.marL = 27 + (p.lvl || 0) * 36; p.pp.indent = -27; }
       if (off && cls === 'other') { delete p.pp.marL; delete p.pp.indent; }
       if (bu.t === 'char' && (!bu.ch || bu.ch === 'undefined')) bu.ch = '•';
-    }, kind === 'num' ? 'Numbering' : 'Bullets');
+    }, kind === 'num' ? L.N('Numbering') : L.N('Bullets'));
   };
   A.indent = function (d) {
-    L.fmt.para((p) => { p.lvl = L.clamp((p.lvl || 0) + d, 0, 8); }, d > 0 ? 'Demote' : 'Promote');
+    L.fmt.para((p) => { p.lvl = L.clamp((p.lvl || 0) + d, 0, 8); }, d > 0 ? L.N('Demote') : L.N('Promote'));
     if (L.panes.left.tab === 'outline') L.panes.left.render();
   };
   A.moveParas = function (d) {
@@ -1192,7 +1249,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
   A.insertField = function (f) {
     A.ensureTextTarget();
     if (!TE.active()) return;
-    L.hist.push('Insert ' + (f === 'slidenum' ? 'Slide Number' : 'Date'));
+    L.hist.push(f === 'slidenum' ? 'Insert Slide Number' : 'Insert Date');
     TE.insertField(f);
   };
   /** make sure there's an active text editing target; returns true if editing */
@@ -1211,13 +1268,14 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     TE.begin(tb.id, { atEnd: true });
     return true;
   };
-  A.formatPainter = function (sticky) {
-    if (E.tool && E.tool.kind === 'painter') { E.setTool(null); return; }
-    const fmt = E.pickFormat();
-    if (!fmt) return;
-    E.setTool({ kind: 'painter', fmt, sticky: !!sticky });
-    A.status(sticky ? 'Format Painter is locked on — press Esc to stop.' : 'Click an object or select text to apply the formatting.');
-  };
+  /* Format Painter: the editor paints when the mouse is let go (editor.js, paintOnRelease) */
+  A.painter = ui.brush({
+    el: () => E.scroller,
+    pick: () => E.pickFormat(),
+    apply: (fmt, id) => (id ? E.paintShape(id, fmt) : E.paintText(fmt)),
+    hint: 'Click an object or select text to apply the formatting.',
+    status: (t) => A.status(t),
+  });
   A.spelling = function () {
     A.opts.spell = true;
     A.saveOpts();
@@ -1269,7 +1327,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     if (s && !ph) { const size = 180; s.x = (L.pres.W - size) / 2; s.y = (L.pres.H - size) / 2; s.w = size; s.h = size; E.render(); }
   };
   A.picMode = (m) => E.commit('Picture Color', () => { for (const s of E.selected()) if (s.type === 'image') { s.img = Object.assign({}, s.img); if (m) s.img.mode = m; else delete s.img.mode; } });
-  A.picAdjust = (k, d) => E.commit(k === 'bright' ? 'Brightness' : 'Contrast', () => { for (const s of E.selected()) if (s.type === 'image') { s.img = Object.assign({}, s.img); s.img[k] = L.clamp(L.round((s.img[k] || 0) + d, 2), -1, 1); } });
+  A.picAdjust = (k, d) => E.commit(k === 'bright' ? L.N('Brightness') : L.N('Contrast'), () => { for (const s of E.selected()) if (s.type === 'image') { s.img = Object.assign({}, s.img); s.img[k] = L.clamp(L.round((s.img[k] || 0) + d, 2), -1, 1); } });
   A.picReset = () => E.commit('Reset Picture', () => { for (const s of E.selected()) if (s.type === 'image') { s.img = {}; s.crop = { l: 0, t: 0, r: 0, b: 0 }; } });
   A.picTransparentTool = function () {
     const s = E.primary();
@@ -1341,7 +1399,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     const { sh } = c;
     const snap = TE.active() ? TE.snapshot() : null;
     if (snap) TE.detach();
-    L.hist.push('Table');
+    L.hist.push(L.N('Table'));
     const t = sh.tbl;
     switch (op) {
       case 'rowAbove': for (let i = c.r0; i <= c.r1; i++) A.tableAddRow(sh, c.r0, false); break;
@@ -1402,7 +1460,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     const none = { t: 'none', w: 1 };
     const snap = TE.active() ? TE.snapshot() : null;
     if (snap) TE.detach();
-    L.hist.push('Borders');
+    L.hist.push(L.N('Borders'));
     const t = c.sh.tbl;
     for (let r = c.r0; r <= c.r1; r++) for (let q = c.c0; q <= c.c1; q++) {
       const cell = t.rows[r].cells[q];
@@ -1435,7 +1493,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     const c = tableCtx();
     if (!c) return;
     const bc = L.dlg.colorPick(A.tblBorder.c, (v) => { A.tblBorder.c = v; });
-    const bw = ui.select(L.dlg.LINE_WEIGHTS.map((w) => [w, w + ' pt']), A.tblBorder.w, (v) => { A.tblBorder.w = +v; });
+    const bw = ui.select(L.dlg.LINE_WEIGHTS.map((w) => [w, L.t('{0} pt', w)]), A.tblBorder.w, (v) => { A.tblBorder.w = +v; });
     const bs = ui.select(L.dlg.DASHES, A.tblBorder.dash, (v) => { A.tblBorder.dash = v; });
     const btns = h('div', { class: 'row' }, ...[['all', 'bordersAll'], ['out', 'bordersOut'], ['in', 'bordersIn'], ['none', 'bordersNone'], ['t', 'bordersTop'], ['b', 'bordersBottom'], ['l', 'bordersLeft'], ['r', 'bordersRight']].map(([k, ic]) => { const b = h('button', { type: 'button', class: 'btn small', html: L.icons.get(ic), 'aria-label': k }); b.addEventListener('click', () => A.tableBorders(k)); return b; }));
     const cf = L.dlg.fillPicker({ t: 'none' }, 'fill', (f) => A.tableFill(f));
@@ -1456,9 +1514,9 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     if (ph) { sh.ph = L.clone(ph.ph); slide.shapes.splice(slide.shapes.indexOf(ph), 1, sh); } else slide.shapes.push(sh);
     E.sel = [sh.id];
     E.render(); E.touched();
-    L.chart.edit(sh, (c) => E.commit('Chart', () => { sh.chart = c; }));
+    L.chart.edit(sh, (c) => E.commit(L.N('Chart'), () => { sh.chart = c; }));
   };
-  ui.cmd('editChart', { label: 'Edit Chart Data...', icon: 'chart', enabled: () => { const s = E.primary(); return !!s && s.type === 'chart'; }, run: () => { const s = E.primary(); L.chart.edit(s, (c) => E.commit('Chart', () => { s.chart = c; })); } });
+  ui.cmd('editChart', { label: 'Edit Chart Data...', icon: 'chart', enabled: () => { const s = E.primary(); return !!s && s.type === 'chart'; }, run: () => { const s = E.primary(); L.chart.edit(s, (c) => E.commit(L.N('Chart'), () => { s.chart = c; })); } });
   A.insertWordArtDialog = function () {
     L.dlg.wordartGallery((idx) => {
       const st = L.dlg.WA_STYLES[idx];
@@ -1469,8 +1527,8 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
         const maxLen = Math.max(...lines.map((x) => x.length), 1);
         const hh = Math.min(L.pres.H * 0.6, o.size * 1.5 * lines.length);
         const w = Math.min(L.pres.W * 0.85, maxLen * o.size * 0.75);
-        L.hist.push('Insert WordArt');
-        const sh = { id: L.uid('s'), type: 'wordart', name: 'WordArt ' + (slide.shapes.length + 1), x: (L.pres.W - w) / 2, y: (L.pres.H - hh) / 2, w, h: hh, rot: 0, wa: Object.assign(L.clone(st), { text: o.text, font: o.font, b: o.b, i: o.i, style: idx }) };
+        L.hist.push('Insert LettersArt');
+        const sh = { id: L.uid('s'), type: 'wordart', name: 'LettersArt ' + (slide.shapes.length + 1), x: (L.pres.W - w) / 2, y: (L.pres.H - hh) / 2, w, h: hh, rot: 0, wa: Object.assign(L.clone(st), { text: o.text, font: o.font, b: o.b, i: o.i, style: idx }) };
         slide.shapes.push(sh);
         E.sel = [sh.id];
         E.render(); E.touched(); A.updateToolbars();
@@ -1480,89 +1538,14 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
   A.editWordArt = function () {
     const s = E.primary();
     if (!s || s.type !== 'wordart') return;
-    L.dlg.wordartText(s.wa, (o) => E.commit('Edit WordArt Text', () => { Object.assign(s.wa, { text: o.text, font: o.font, b: o.b, i: o.i }); }));
+    L.dlg.wordartText(s.wa, (o) => E.commit('Edit LettersArt Text', () => { Object.assign(s.wa, { text: o.text, font: o.font, b: o.b, i: o.i }); }));
   };
   A.wordartRestyle = function () {
     const s = E.primary();
-    L.dlg.wordartGallery((idx) => E.commit('WordArt Style', () => { for (const x of E.selected()) if (x.type === 'wordart') { const st = L.clone(L.dlg.WA_STYLES[idx]); x.wa = Object.assign(x.wa, { fill: st.fill, line: st.line, shadow: st.shadow, warp: st.warp, style: idx }); } }), s && s.wa ? s.wa.style : 0);
+    L.dlg.wordartGallery((idx) => E.commit('LettersArt Style', () => { for (const x of E.selected()) if (x.type === 'wordart') { const st = L.clone(L.dlg.WA_STYLES[idx]); x.wa = Object.assign(x.wa, { fill: st.fill, line: st.line, shadow: st.shadow, warp: st.warp, style: idx }); } }), s && s.wa ? s.wa.style : 0);
   };
-  A.waSet = (o) => E.commit('WordArt', () => { for (const s of E.selected()) if (s.type === 'wordart') Object.assign(s.wa, o); });
-  A.waToggle = (k) => E.commit('WordArt', () => { for (const s of E.selected()) if (s.type === 'wordart') s.wa[k] = !s.wa[k]; });
-  A.insertDiagram = function (kind, phId) {
-    const slide = E.slide();
-    if (!slide) return;
-    const ph = phId ? E.shape(phId) : null;
-    const box = ph ? { x: ph.x, y: ph.y, w: ph.w, h: ph.h } : { x: L.pres.W * 0.15, y: L.pres.H * 0.22, w: L.pres.W * 0.7, h: L.pres.H * 0.66 };
-    const kids = buildDiagram(kind, box);
-    L.hist.push('Insert Diagram');
-    const g = { id: L.uid('s'), type: 'group', name: L.dlg.DIAGRAMS.find((d) => d[0] === kind)[1] + ' ' + (slide.shapes.length + 1), rot: 0, kids };
-    Object.assign(g, M.groupBounds(g));
-    if (ph) slide.shapes.splice(slide.shapes.indexOf(ph), 1, g); else slide.shapes.push(g);
-    E.sel = [g.id];
-    E.render(); E.touched();
-  };
-  function buildDiagram(kind, b) {
-    const shp = (geom, x, y, w, hh, fill, text, extra) => Object.assign({ id: L.uid('s'), type: 'shape', name: 'Diagram shape', geom, x, y, w, h: hh, rot: 0, fill, line: { c: 'tx1', w: 0.75, dash: 'solid' }, tx: T.body([T.para(text || '', { algn: 'ctr' }, { sz: Math.max(10, Math.round(Math.min(b.w, b.h) / 22)), color: 'tx1' })], { anchor: 'ctr', wrap: true }) }, extra || {});
-    const ln = (x1, y1, x2, y2) => M.newLine(L.pres, { shapes: [] }, 'line', [x1, y1], [x2, y2]);
-    const acc = (i) => ({ t: 'solid', c: ['accent1', 'accent2', 'accent3', 'accent6', 'accent5', 'accent4'][i % 6], a: 1 });
-    const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
-    const out = [];
-    switch (kind) {
-      case 'org': {
-        const bw = b.w * 0.26, bh = b.h * 0.2;
-        out.push(shp('rect', cx - bw / 2, b.y, bw, bh, acc(0), 'Director'));
-        const ys = b.y + b.h * 0.6;
-        out.push(ln(cx, b.y + bh, cx, b.y + bh + (ys - b.y - bh) / 2));
-        const xs = [b.x + b.w * 0.02, cx - bw / 2, b.x + b.w * 0.98 - bw];
-        out.push(ln(xs[0] + bw / 2, b.y + bh + (ys - b.y - bh) / 2, xs[2] + bw / 2, b.y + bh + (ys - b.y - bh) / 2));
-        xs.forEach((x, i) => { out.push(ln(x + bw / 2, b.y + bh + (ys - b.y - bh) / 2, x + bw / 2, ys)); out.push(shp('rect', x, ys, bw, bh, acc(0), ['Operations', 'Marketing', 'Finance'][i])); });
-        break;
-      }
-      case 'cycle': {
-        const r = Math.min(b.w, b.h) * 0.42;
-        for (let i = 0; i < 3; i++) {
-          const a0 = -90 + i * 120 + 12, a1 = a0 + 96;
-          out.push(shp('circularArrow', cx - r, cy - r, r * 2, r * 2, acc(i), '', { adj: { adj1: 9000, adj2: 1142319, adj3: 20457681, adj4: Math.round((((a0 % 360) + 360) % 360) * 60000), adj5: Math.round((((a1 % 360) + 360) % 360) * 60000) }, line: { t: 'none' } }));
-          const am = ((a0 + 48) * Math.PI) / 180;
-          out.push(shp('rect', cx + Math.cos(am) * r * 1.02 - b.w * 0.11, cy + Math.sin(am) * r * 1.02 - b.h * 0.06, b.w * 0.22, b.h * 0.12, { t: 'none' }, ['Plan', 'Do', 'Review'][i], { line: { t: 'none' }, type: 'text' }));
-        }
-        break;
-      }
-      case 'radial': {
-        const r = Math.min(b.w, b.h) * 0.38, cr = r * 0.42, sr = r * 0.3;
-        for (let i = 0; i < 4; i++) { const a = (-90 + i * 90) * Math.PI / 180; out.push(ln(cx + Math.cos(a) * cr, cy + Math.sin(a) * cr, cx + Math.cos(a) * (r - sr), cy + Math.sin(a) * (r - sr))); }
-        out.push(shp('ellipse', cx - cr, cy - cr, cr * 2, cr * 2, acc(0), 'Core'));
-        for (let i = 0; i < 4; i++) { const a = (-90 + i * 90) * Math.PI / 180; out.push(shp('ellipse', cx + Math.cos(a) * r - sr, cy + Math.sin(a) * r - sr, sr * 2, sr * 2, acc(i + 1), ['North', 'East', 'South', 'West'][i])); }
-        break;
-      }
-      case 'pyramid': {
-        const n = 4, top = b.y, base = b.y + b.h, pw = Math.min(b.w, b.h * 1.3);
-        for (let i = 0; i < n; i++) {
-          const y0 = top + (b.h * i) / n, y1 = top + (b.h * (i + 1)) / n;
-          const w0 = (pw * (y0 - top)) / b.h, w1 = (pw * (y1 - top)) / b.h;
-          const x = cx - w1 / 2, w = w1, hh = y1 - y0;
-          const cmds = i === 0 ? [['M', w / 2, 0], ['L', w, hh], ['L', 0, hh], ['Z']] : [['M', (w - w0) / 2, 0], ['L', (w + w0) / 2, 0], ['L', w, hh], ['L', 0, hh], ['Z']];
-          out.push(shp('custom', x, y0, w, hh, acc(i), ['Vision', 'Strategy', 'Programs', 'Operations'][i], { path: { paths: [{ w, h: hh, cmds, fill: 'norm', stroke: true }] } }));
-        }
-        void base;
-        break;
-      }
-      case 'venn': {
-        const r = Math.min(b.w, b.h) * 0.3;
-        [[-0.55, -0.35], [0.55, -0.35], [0, 0.55]].forEach(([dx, dy], i) => out.push(shp('ellipse', cx + dx * r - r, cy + dy * r - r, r * 2, r * 2, { t: 'solid', c: ['accent1', 'accent2', 'accent3'][i], a: 0.55 }, ['People', 'Process', 'Tools'][i])));
-        break;
-      }
-      case 'target': {
-        const r = Math.min(b.w, b.h) * 0.46;
-        [1, 0.68, 0.36].forEach((k, i) => out.push(shp('ellipse', cx - r * k, cy - r * k, r * k * 2, r * k * 2, acc(i), '', { tx: undefined })));
-        ['Awareness', 'Interest', 'Decision'].forEach((t, i) => out.push(shp('rect', cx + r * 1.05, cy - r + i * r * 0.5 + r * 0.25, b.w * 0.2, r * 0.3, { t: 'none' }, t, { type: 'text', line: { t: 'none' } })));
-        out.forEach((s) => { if (s.tx === undefined) delete s.tx; });
-        break;
-      }
-      default: break;
-    }
-    return out;
-  }
+  A.waSet = (o) => E.commit('LettersArt', () => { for (const s of E.selected()) if (s.type === 'wordart') Object.assign(s.wa, o); });
+  A.waToggle = (k) => E.commit('LettersArt', () => { for (const s of E.selected()) if (s.type === 'wordart') s.wa[k] = !s.wa[k]; });
   A.createPhotoAlbum = async function (pics, layout, frame, caps) {
     const pres = L.pres;
     const did = (pres.slides[E.idx] || pres.slides[0] || {}).design || Object.keys(pres.designs)[0];
@@ -1603,13 +1586,14 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
   };
 
   /* ================= AutoContent wizard ================= */
+  /* presentation type (shown in the UI's language) → its slides, [title, bullets] (content: English, as the templates') */
   const AUTOCONTENT = {
-    'Recommending a Strategy': [['Recommending a Strategy', ['Your name', 'Date']], ['Vision Statement', ['Where we want to be in three years', 'What success looks like for customers']], ['Goals', ['Goal and its measure', 'Goal and its measure', 'Goal and its measure']], ['Today\'s Situation', ['Strengths we build on', 'Gaps we need to close', 'What competitors are doing']], ['Options', ['Option A — cost, benefit, risk', 'Option B — cost, benefit, risk', 'Option C — cost, benefit, risk']], ['Recommendation', ['The option we propose and why', 'What it will cost', 'How we will know it is working']], ['Next Steps', ['Decision needed today', 'Owners and dates', 'When we report back']]],
-    'Project Overview': [['Project Overview', ['Project lead', 'Date']], ['Objectives', ['What the project will deliver', 'Who benefits']], ['Scope', ['In scope', 'Out of scope']], ['Timeline', ['Milestone and date', 'Milestone and date', 'Milestone and date']], ['Team and Roles', ['Sponsor', 'Lead', 'Contributors']], ['Risks', ['Risk — likelihood — mitigation', 'Risk — likelihood — mitigation']], ['Status Reporting', ['How often we report', 'Where to find updates']]],
-    'Status Report': [['Status Report', ['Team or project', 'Reporting period']], ['Summary', ['Overall status: on track / at risk / off track', 'Highlights since last report']], ['Progress', ['Completed', 'In progress', 'Not started']], ['Issues', ['Issue — impact — help needed']], ['Next Period', ['Planned work', 'Decisions needed']]],
-    'Brainstorming Session': [['Brainstorming Session', ['Facilitator', 'Date']], ['Ground Rules', ['Every idea counts', 'Build on others\' ideas', 'Quantity first, judgment later']], ['The Question', ['State the problem in one sentence']], ['Ideas', ['', '', '']], ['Grouping the Ideas', ['Theme', 'Theme', 'Theme']], ['Next Steps', ['Ideas to explore', 'Owners and dates']]],
-    'Training': [['Training', ['Instructor', 'Date']], ['Learning Objectives', ['After this session you will be able to...', '...', '...']], ['Agenda', ['Topic one', 'Topic two', 'Practice', 'Review']], ['Topic One', ['Key concept', 'Example', 'Try it']], ['Topic Two', ['Key concept', 'Example', 'Try it']], ['Review', ['What we covered', 'Where to learn more', 'Questions']]],
-    'Selling a Product or Service': [['Product Name', ['Presenter', 'Date']], ['The Problem', ['What customers struggle with today']], ['Our Solution', ['What it does', 'How it is different']], ['Benefits', ['Saves time', 'Saves money', 'Reduces risk']], ['Pricing', ['Plans and options']], ['Getting Started', ['How to buy', 'Who to contact']]],
+    [L.N('Recommending a Strategy')]: [['Recommending a Strategy', ['Your name', 'Date']], ['Vision Statement', ['Where we want to be in three years', 'What success looks like for customers']], ['Goals', ['Goal and its measure', 'Goal and its measure', 'Goal and its measure']], ['Today\'s Situation', ['Strengths we build on', 'Gaps we need to close', 'What competitors are doing']], ['Options', ['Option A — cost, benefit, risk', 'Option B — cost, benefit, risk', 'Option C — cost, benefit, risk']], ['Recommendation', ['The option we propose and why', 'What it will cost', 'How we will know it is working']], ['Next Steps', ['Decision needed today', 'Owners and dates', 'When we report back']]],
+    [L.N('Project Overview')]: [['Project Overview', ['Project lead', 'Date']], ['Objectives', ['What the project will deliver', 'Who benefits']], ['Scope', ['In scope', 'Out of scope']], ['Timeline', ['Milestone and date', 'Milestone and date', 'Milestone and date']], ['Team and Roles', ['Sponsor', 'Lead', 'Contributors']], ['Risks', ['Risk — likelihood — mitigation', 'Risk — likelihood — mitigation']], ['Status Reporting', ['How often we report', 'Where to find updates']]],
+    [L.N('Status Report')]: [['Status Report', ['Team or project', 'Reporting period']], ['Summary', ['Overall status: on track / at risk / off track', 'Highlights since last report']], ['Progress', ['Completed', 'In progress', 'Not started']], ['Issues', ['Issue — impact — help needed']], ['Next Period', ['Planned work', 'Decisions needed']]],
+    [L.N('Brainstorming Session')]: [['Brainstorming Session', ['Facilitator', 'Date']], ['Ground Rules', ['Every idea counts', 'Build on others\' ideas', 'Quantity first, judgment later']], ['The Question', ['State the problem in one sentence']], ['Ideas', ['', '', '']], ['Grouping the Ideas', ['Theme', 'Theme', 'Theme']], ['Next Steps', ['Ideas to explore', 'Owners and dates']]],
+    [L.N('Training')]: [['Training', ['Instructor', 'Date']], ['Learning Objectives', ['After this session you will be able to...', '...', '...']], ['Agenda', ['Topic one', 'Topic two', 'Practice', 'Review']], ['Topic One', ['Key concept', 'Example', 'Try it']], ['Topic Two', ['Key concept', 'Example', 'Try it']], ['Review', ['What we covered', 'Where to learn more', 'Questions']]],
+    [L.N('Selling a Product or Service')]: [['Product Name', ['Presenter', 'Date']], ['The Problem', ['What customers struggle with today']], ['Our Solution', ['What it does', 'How it is different']], ['Benefits', ['Saves time', 'Saves money', 'Reduces risk']], ['Pricing', ['Plans and options']], ['Getting Started', ['How to buy', 'Who to contact']]],
   };
   A.autoContent = function () {
     const types = Object.keys(AUTOCONTENT);
@@ -1653,7 +1637,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
   A.copyShapes = function (cut) {
     const shapes = E.selected().filter((s) => !(E.find(s.id) && E.find(s.id).parent && false));
     if (!shapes.length) return null;
-    const c = { kind: 'shapes', shapes: L.clone(shapes), design: E.design().id, label: (shapes.length > 1 ? shapes.length + ' objects: ' : '') + (clipText(shapes) || shapes[0].name), text: clipText(shapes) };
+    const c = { kind: 'shapes', shapes: L.clone(shapes), design: E.design().id, label: shapes.length > 1 ? L.t('{0} objects: {1}', shapes.length, clipText(shapes) || shapes[0].name) : clipText(shapes) || shapes[0].name, text: clipText(shapes) };
     pushClip(c);
     if (cut) A.deleteSel();
     return c;
@@ -1663,7 +1647,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     if (!ss.length) return null;
     const designs = {};
     for (const s of ss) designs[s.design] = L.clone(L.pres.designs[s.design]);
-    const c = { kind: 'slides', slides: L.clone(ss), designs, label: ss.length + ' slide' + (ss.length > 1 ? 's' : '') + ': ' + (M.slideTitle(ss[0]) || 'Untitled'), text: ss.map((s) => M.allText(s)).join('\n\n') };
+    const c = { kind: 'slides', slides: L.clone(ss), designs, label: ss.length > 1 ? L.t('{0} slides: {1}', ss.length, M.slideTitle(ss[0]) || L.t('Untitled')) : L.t('1 slide: {0}', M.slideTitle(ss[0]) || L.t('Untitled')), text: ss.map((s) => M.allText(s)).join('\n\n') };
     pushClip(c);
     if (cut) A.deleteSlides();
     return c;
@@ -1687,7 +1671,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
   A.pasteItem = function (c) {
     if (!c) return;
     if (c.kind === 'text') {
-      if (TE.active()) { L.hist.push('Paste'); TE.insertText(c.text); return; }
+      if (TE.active()) { L.hist.push(L.N('Paste')); TE.insertText(c.text); return; }
       return A.pasteText(c.text);
     }
     if (c.kind === 'slides') {
@@ -1701,10 +1685,10 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
       return;
     }
     if (c.kind === 'shapes') {
-      if (TE.active()) { L.hist.push('Paste'); TE.insertText(c.text || ''); return; }
+      if (TE.active()) { L.hist.push(L.N('Paste')); TE.insertText(c.text || ''); return; }
       const slide = E.slide();
       if (!slide) return;
-      E.commit('Paste', () => {
+      E.commit(L.N('Paste'), () => {
         const ids = [];
         for (const d of M.dupMany(c.shapes)) {
           const clash = slide.shapes.some((x) => Math.abs(x.x - d.x) < 1 && Math.abs(x.y - d.y) < 1);
@@ -1721,7 +1705,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     const slide = E.slide();
     if (!slide || !text) return;
     const lines = text.replace(/\r/g, '').split('\n');
-    L.hist.push('Paste');
+    L.hist.push(L.N('Paste'));
     const tb = M.newTextBox(L.pres, slide, L.pres.W * 0.1, L.pres.H * 0.3, L.pres.W * 0.8, 40, true);
     tb.tx.ps = lines.map((l) => T.para(l));
     slide.shapes.push(tb);
@@ -1733,8 +1717,8 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     const c = A.clip;
     if (!c) return;
     let mode = 'native';
-    const body = h('div', { class: 'col' }, h('div', { text: 'Source: ' + c.label.slice(0, 60) }), ui.radio('ps', '&Paste as ' + (c.kind === 'slides' ? 'slides' : 'Lectern objects'), true, () => { mode = 'native'; }), ui.radio('ps', 'Paste as &Unformatted Text', false, () => { mode = 'text'; }));
-    ui.dialog({ title: 'Paste Special', body, width: 360, buttons: [{ label: 'OK', primary: true, onClick: () => (mode === 'text' ? (TE.active() ? (L.hist.push('Paste'), TE.insertText(c.text || '')) : A.pasteText(c.text || '')) : A.pasteItem(c)) }, { label: 'Cancel' }] });
+    const body = h('div', { class: 'col' }, h('div', { text: L.t('Source: {0}', c.label.slice(0, 60)), translate: 'no' }), ui.radio('ps', c.kind === 'slides' ? '&Paste as slides' : '&Paste as Lectern objects', true, () => { mode = 'native'; }), ui.radio('ps', 'Paste as &Unformatted Text', false, () => { mode = 'text'; }));
+    ui.dialog({ title: 'Paste Special', body, width: 360, buttons: [{ label: 'OK', primary: true, onClick: () => (mode === 'text' ? (TE.active() ? (L.hist.push(L.N('Paste')), TE.insertText(c.text || '')) : A.pasteText(c.text || '')) : A.pasteItem(c)) }, { label: 'Cancel' }] });
   };
   let pendingClip = null;
   document.addEventListener('copy', (e) => onClipEvent(e, 'copy'));
@@ -1767,7 +1751,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     }
     if (A.clip && (marker === A.clip.id || (text && text === A.clip.text))) { A.pasteItem(A.clip); return; }
     if (files.length) { A.insertPictureFiles(files); return; }
-    if (text) { const sel = E.primary(); if (sel && sel.tx && E.sel.length === 1) { TE.begin(sel.id, { atEnd: true }); L.hist.push('Paste'); TE.insertText(text); } else A.pasteText(text); }
+    if (text) { const sel = E.primary(); if (sel && sel.tx && E.sel.length === 1) { TE.begin(sel.id, { atEnd: true }); L.hist.push(L.N('Paste')); TE.insertText(text); } else A.pasteText(text); }
   });
 
   /* ================= context menus ================= */
@@ -1910,7 +1894,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
       if (s.tx || s.type === 'shape') {
         e.preventDefault();
         TE.begin(s.id, { selectAll: true });
-        if (TE.active()) { L.hist.push('Typing'); TE.insertText(e.key); }
+        if (TE.active()) { L.hist.push(L.N('Typing')); TE.insertText(e.key); }
       }
     }
   });
@@ -1939,120 +1923,221 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
   /* ================= splitters ================= */
   function setupSplitters() {
     const sl = L.$('#split-left'), sn = L.$('#split-notes');
+    /* splitter drags (common/ui.js ui.drag): they follow the pointer at once; Esc or a lost release puts the pane back */
     sl.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
       e.preventDefault();
-      sl.setPointerCapture(e.pointerId);
-      const x0 = e.clientX, w0 = L.$('#leftpane').offsetWidth;
-      const mv = (ev) => { const w = L.clamp(w0 + ev.clientX - x0, 110, 420); L.$('#leftpane').style.width = w + 'px'; A.opts.leftW = w; };
-      const up = () => { sl.removeEventListener('pointermove', mv); sl.removeEventListener('pointerup', up); L.panes.left.render(); E.layout(); A.saveOpts(); };
-      sl.addEventListener('pointermove', mv); sl.addEventListener('pointerup', up);
+      const w0 = L.$('#leftpane').offsetWidth, was = A.opts.leftW;
+      const size = (w) => { L.$('#leftpane').style.width = w + 'px'; };
+      ui.drag(e, {
+        threshold: 0,
+        move: (ev, d) => { const w = L.clamp(w0 + d.dx, 110, 420); size(w); A.opts.leftW = w; },
+        up: (ev, d) => { if (!d.moved) return; L.panes.left.render(); E.layout(); A.saveOpts(); },
+        cancel: () => { size(w0); A.opts.leftW = was; E.layout(); },
+      });
     });
     sn.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
       e.preventDefault();
-      sn.setPointerCapture(e.pointerId);
-      const y0 = e.clientY, h0 = L.$('#notes').offsetHeight;
-      const mv = (ev) => { const hh = L.clamp(h0 - (ev.clientY - y0), 24, 420); L.$('#notes').style.height = hh + 'px'; A.opts.notesH = hh; };
-      const up = () => { sn.removeEventListener('pointermove', mv); sn.removeEventListener('pointerup', up); E.layout(); A.saveOpts(); };
-      sn.addEventListener('pointermove', mv); sn.addEventListener('pointerup', up);
+      const h0 = L.$('#notes').offsetHeight, was = A.opts.notesH;
+      const size = (hh) => { L.$('#notes').style.height = hh + 'px'; };
+      ui.drag(e, {
+        threshold: 0,
+        move: (ev, d) => { const hh = L.clamp(h0 - d.dy, 24, 420); size(hh); A.opts.notesH = hh; },
+        up: (ev, d) => { if (!d.moved) return; E.layout(); A.saveOpts(); },
+        cancel: () => { size(h0); A.opts.notesH = was; E.layout(); },
+      });
     });
   }
 
   /* ================= sample presentation ================= */
+  /* Harbor & Pine Coffee's expansion plan, 16:9 on the Evergreen design: a drawn title picture, figures, a chart,
+     a table, a timeline of shapes, an IntelliArt funnel, builds and transitions */
   function buildSample() {
-    const pres = M.newPresentation({ design: 'azure', empty: true });
-    const did = Object.keys(pres.designs)[0];
+    const pres = M.newPresentation({ design: 'evergreen', empty: true, w: 960, h: 540 });
+    const did = Object.keys(pres.designs)[0], design = pres.designs[did];
+    const W = pres.W, H = pres.H, P = T.para, MJ = '+mj', GREY = '#7A7068';
     pres.props.title = 'Harbor & Pine Coffee — 2027 Expansion Plan (sample)';
     pres.props.author = 'Sample';
-    const add = (layout) => { const s = M.newSlide(pres, layout, did); pres.slides.push(s); return s; };
     const ph = (s, t) => s.shapes.find((x) => x.ph && x.ph.type === t);
-    /* 1 */
-    let s = add('title');
-    T.setPlain(ph(s, 'ctrTitle').tx, 'Harbor & Pine Coffee');
-    ph(s, 'subTitle').tx.ps = [T.para('2027 Expansion Plan'), T.para('Sample presentation · Board review, October 2026', null, { sz: 18, i: true })];
-    s.trans = { type: 'fade', spd: 'med', click: true, after: null };
-    s.notes = 'This is a sample deck. Open your own .pptx from File ▸ Open, or start fresh with File ▸ New.';
-    /* 2 */
-    s = add('text');
-    T.setPlain(ph(s, 'title').tx, 'Where we stand today');
-    const b = ph(s, 'body');
-    b.tx.ps = T.fromLines(['14 cafés across three coastal cities', 'Same-store sales up 11% year over year', '\tMorning traffic is the strongest daypart', 'Wholesale beans now 22% of revenue', 'Roastery running at 64% of capacity']);
-    s.anims = [{ id: L.uid('a'), sid: b.id, cls: 'entr', eff: 'fade', start: 'click', dur: 500, delay: 0, by: 'para' }];
-    s.trans = { type: 'push', dir: 'u', spd: 'med', click: true, after: null };
-    s.notes = 'Lead with momentum: comparable-store growth and a roastery with headroom.';
-    /* 3 */
-    s = add('chart');
-    T.setPlain(ph(s, 'title').tx, 'Revenue by region ($K)');
-    const cp = ph(s, 'chart');
-    const chart = { id: L.uid('s'), type: 'chart', name: 'Chart 2', ph: L.clone(cp.ph), x: cp.x, y: cp.y, w: cp.w, h: cp.h, rot: 0, chart: { kind: 'col', title: '', legend: 'b', gridY: true, labels: false, fsz: 12, cats: ['Q1', 'Q2', 'Q3', 'Q4'], series: [{ name: 'Portland', vals: [410, 455, 520, 560], color: '#4A7BC8' }, { name: 'Seattle', vals: [380, 402, 446, 490], color: '#E0A526' }, { name: 'Monterey', vals: [120, 138, 171, 205], color: '#2D6BB5' }] } };
-    s.shapes.splice(s.shapes.indexOf(cp), 1, chart);
-    s.anims = [{ id: L.uid('a'), sid: chart.id, cls: 'entr', eff: 'wipe', dir: 'b', start: 'after', dur: 1000, delay: 0, by: 'all' }];
-    s.trans = { type: 'wipe', dir: 'r', spd: 'med', click: true, after: null };
-    /* 4 */
-    s = add('table');
-    T.setPlain(ph(s, 'title').tx, 'Rollout schedule');
-    const tp = ph(s, 'tbl');
-    const t = M.newTable(pres, s, 5, 4, tp.x, tp.y, tp.w);
-    t.ph = L.clone(tp.ph);
-    const data = [['Phase', 'Market', 'New stores', 'Opens'], ['1', 'Tacoma, WA', '2', 'March 2027'], ['2', 'Santa Cruz, CA', '3', 'June 2027'], ['3', 'Bend, OR', '2', 'September 2027'], ['4', 'Boise, ID', '3', 'January 2028']];
-    data.forEach((row, ri) => row.forEach((v, ci) => {
-      const cell = t.tbl.rows[ri].cells[ci];
-      cell.tx.ps = [T.para(v, { algn: ci === 0 || ci === 2 ? 'ctr' : 'l' }, ri === 0 ? { sz: 20, b: true, color: 'lt1' } : { sz: 20 })];
-      cell.fill = ri === 0 ? { t: 'solid', c: 'accent1', a: 1 } : ri % 2 ? { t: 'solid', c: '#E4ECF8', a: 1 } : { t: 'solid', c: '#FFFFFF', a: 1 };
-      for (const k of ['l', 'r', 't', 'b']) cell.bd[k] = { c: '#9BB7E3', w: 1, dash: 'solid' };
-      cell.tx.anchor = 'ctr';
-    }));
-    t.tbl.rows.forEach((r) => { r.h = 46; });
-    t.h = 46 * 5;
-    t.tbl.cols = [tp.w * 0.14, tp.w * 0.38, tp.w * 0.2, tp.w * 0.28];
-    s.shapes.splice(s.shapes.indexOf(tp), 1, t);
-    s.trans = { type: 'cover', dir: 'l', spd: 'med', click: true, after: null };
-    s.notes = 'Ten new stores over five quarters; each phase starts only after the prior one is cash-positive.';
-    /* 5 */
-    s = add('titleOnly');
-    T.setPlain(ph(s, 'title').tx, 'From lease to first pour');
-    const steps = [['Site & lease', '8 weeks'], ['Build-out', '12 weeks'], ['Hire & train', '4 weeks'], ['Soft open', '2 weeks']];
-    const W = pres.W, bw = W * 0.22, gap = W * 0.01, x0 = (W - (bw * 4 + gap * 3)) / 2, y0 = pres.H * 0.42;
-    steps.forEach(([label, dur], i) => {
-      const sh = M.newShape(pres, s, i === 0 ? 'homePlate' : 'chevron', x0 + i * (bw + gap), y0, bw, pres.H * 0.16);
-      sh.fill = { t: 'grad', stops: [{ p: 0, c: L.color.lighten('#4A7BC8', 0.25), a: 1 }, { p: 1, c: '#2A4E8F', a: 1 }], ang: 90, path: 'lin' };
-      sh.line = { t: 'none', w: 0.75 };
-      sh.tx.ps = [T.para(label, { algn: 'ctr' }, { sz: 15, b: true, color: 'lt1' })];
-      sh.tx.ins = [4, 3.6, 4, 3.6];
+    const add = (layout, title, trans) => {
+      const s = M.newSlide(pres, layout, did);
+      pres.slides.push(s);
+      if (title) T.setPlain(ph(s, 'title').tx, title);
+      s.trans = Object.assign({ type: 'fade', spd: 'med', click: true, after: null }, trans);
+      return s;
+    };
+    const solid = (c, a) => ({ t: 'solid', c, a: a == null ? 1 : a });
+    /** a shape without an outline; o: more of its properties (tx, adj, shadow…) */
+    const shape = (s, geom, x, y, w, h, fill, o) => {
+      const sh = Object.assign(M.newShape(pres, s, geom, x, y, w, h), { fill, line: { t: 'none' } }, o);
       s.shapes.push(sh);
-      const tb = M.newTextBox(pres, s, x0 + i * (bw + gap), y0 + pres.H * 0.18, bw, 30, true);
-      tb.tx.ps = [T.para(dur, { algn: 'ctr' }, { sz: 16, color: 'accent1', i: true })];
+      return sh;
+    };
+    /** a text box that keeps its size */
+    const text = (s, x, y, w, h, ps, o) => {
+      const tb = M.newTextBox(pres, s, x, y, w, h, true);
+      Object.assign(tb.tx, { ps, autofit: 'none', ins: [0, 0, 0, 0] }, o);
       s.shapes.push(tb);
-      s.anims.push({ id: L.uid('a'), sid: sh.id, cls: 'entr', eff: 'wipe', dir: 'l', start: i === 0 ? 'click' : 'after', dur: 500, delay: 0, by: 'all' });
-      s.anims.push({ id: L.uid('a'), sid: tb.id, cls: 'entr', eff: 'fade', start: 'with', dur: 500, delay: 200, by: 'all' });
+      return tb;
+    };
+    const group = (s, name, kids) => {
+      for (const k of kids) s.shapes.splice(s.shapes.indexOf(k), 1);
+      const g = { id: L.uid('s'), type: 'group', name, rot: 0, kids };
+      Object.assign(g, M.groupBounds(g));
+      s.shapes.push(g);
+      return g;
+    };
+    const line = (s, x1, y1, x2, y2, ln) => { const l = M.newLine(pres, s, 'line', [x1, y1], [x2, y2]); l.line = ln; s.shapes.push(l); return l; };
+    const anim = (s, sh, eff, start, o) => s.anims.push(Object.assign({ id: L.uid('a'), sid: sh.id, cls: 'entr', eff, start, dur: 500, delay: 0, by: 'all' }, o));
+
+    /* 1: the title, beside a copper sun setting behind the pines into the harbour */
+    let s = add('title');
+    ph(s, 'ctrTitle').tx.ps = [P('Harbor & Pine Coffee', null, { sz: 48 })];
+    ph(s, 'subTitle').tx.ps = [P('2027 Expansion Plan', null, { sz: 26 }), P('Ten new cafés in four markets', { spcBef: { pts: 6 } }, { sz: 16, color: GREY })];
+    text(s, W * 0.06, H * 0.2, W * 0.48, 22, [P('Board review · October 2026', null, { sz: 13, b: true, color: 'accent2', spc: 2, cap: 'all' })]);
+    text(s, W * 0.06, H * 0.86, W * 0.48, 20, [P('Sample presentation', null, { sz: 12, color: GREY })]);
+    const px = W * 0.606, pw = W - px, cx = px + pw * 0.48, hz = H * 0.62;
+    const sun = shape(s, 'ellipse', cx - 96, hz - 140, 192, 192, { t: 'grad', stops: [{ p: 0, c: '#F2C77F', a: 1 }, { p: 1, c: '#C9803A', a: 1 }], ang: 90, path: 'lin' });
+    sun.name = 'Sun';
+    const water = shape(s, 'rect', px, hz, pw, H - hz, solid('#17322B'));
+    water.name = 'Harbour';
+    const glints = [[150, 0.6], [112, 0.5], [80, 0.42], [52, 0.34], [28, 0.26], [12, 0.2]].map(([w, a], i) => shape(s, 'rect', cx - w / 2, hz + 14 + i * 15, w, 3, solid('#F2C77F', a)));
+    group(s, 'Reflection', glints);
+    const pine = (x, h) => {
+      const w = h * 0.46, top = hz - h, kids = [0, 1, 2].map((i) => shape(s, 'triangle', x - (w * (0.5 + 0.25 * i)) / 2, top + i * h * 0.26, w * (0.5 + 0.25 * i), h * 0.42, solid('#10241E')));
+      kids.push(shape(s, 'rect', x - w * 0.06, hz - h * 0.08, w * 0.12, h * 0.08, solid('#10241E')));
+      return kids;
+    };
+    group(s, 'Pines', [...pine(px + 34, 150), ...pine(px + 72, 104), ...pine(W - 76, 176), ...pine(W - 34, 120)]);
+    s.notes = 'This is a sample deck. Open your own .pptx from File ▸ Open, or start fresh with File ▸ New.';
+
+    /* 2: four figures as cards */
+    s = add('titleOnly', 'Where we stand today', { type: 'push', dir: 'u' });
+    const figs = [['14', 'cafés in three coastal cities', 'Portland, Seattle and Monterey', 'accent1'], ['+11%', 'same-store sales, year over year', 'Mornings are the strongest daypart', 'accent2'],
+      ['22%', 'of revenue from wholesale beans', 'Up from 15% in 2025', 'hlink'], ['64%', 'of the roastery’s capacity in use', 'Room to supply ten more cafés', 'accent6']];
+    const cw = (W * 0.9 - 3 * 18) / 4;
+    figs.forEach(([big, label, note, c], i) => {
+      const x = W * 0.05 + i * (cw + 18);
+      const card = shape(s, 'rect', x, 178, cw, 178, solid('#FFFFFF'), { line: { c: '#E4DBCD', w: 0.75, dash: 'solid' }, name: 'Figure ' + (i + 1) });
+      card.tx = T.body([P(big, { algn: 'l' }, { font: MJ, sz: 48, color: c }), P(label, { algn: 'l', spcBef: { pts: 4 } }, { sz: 17, color: 'tx1' }), P(note, { algn: 'l', spcBef: { pts: 12 } }, { sz: 13, color: GREY })], { anchor: 't', wrap: true, autofit: 'none', ins: [18, 26, 16, 12] });
+      const bar = shape(s, 'rect', x, 178, cw, 5, solid(c));
+      const g = group(s, 'Figure ' + (i + 1), [card, bar]);
+      anim(s, g, 'fade', i ? 'after' : 'click', { dur: 400 });
     });
-    const total = M.newTextBox(pres, s, x0, y0 + pres.H * 0.3, bw * 4 + gap * 3, 30, true);
-    total.tx.ps = [T.para('About 26 weeks from signed lease to opening day', { algn: 'ctr' }, { sz: 18 })];
-    s.shapes.push(total);
-    s.trans = { type: 'fade', spd: 'med', click: true, after: null };
-    /* 6 */
-    s = add('text');
-    T.setPlain(ph(s, 'title').tx, 'What we need from the board');
-    const b6 = ph(s, 'body');
-    b6.tx.ps = T.fromLines(['Approve the $4.2M capital plan', 'Green-light a second roaster in Q2', 'Name an executive sponsor for Boise']);
-    b6.w = pres.W * 0.62;
-    const call = M.newShape(pres, s, 'wedgeRoundRectCallout', pres.W * 0.7, pres.H * 0.3, pres.W * 0.25, pres.H * 0.2);
-    call.adj = { adj1: -62000, adj2: 48000 };
-    call.fill = { t: 'solid', c: 'accent2', a: 1 };
-    call.line = { c: '#9A6B00', w: 1, dash: 'solid' };
-    call.shadow = { c: '#000000', a: 0.3, dx: 3, dy: 3, blur: 4 };
-    call.tx.ps = [T.para('Decision needed today', { algn: 'ctr' }, { sz: 20, b: true, color: 'dk1' })];
-    s.shapes.push(call);
-    s.anims = [{ id: L.uid('a'), sid: b6.id, cls: 'entr', eff: 'flyIn', dir: 'l', start: 'click', dur: 500, delay: 0, by: 'para' }, { id: L.uid('a'), sid: call.id, cls: 'entr', eff: 'zoom', start: 'after', dur: 500, delay: 250, by: 'all' }, { id: L.uid('a'), sid: call.id, cls: 'emph', eff: 'teeter', start: 'after', dur: 1000, delay: 0, by: 'all' }];
-    s.trans = { type: 'push', dir: 'l', spd: 'med', click: true, after: null };
-    /* 7 */
-    s = add('blank');
-    const wa = { id: L.uid('s'), type: 'wordart', name: 'WordArt 1', x: pres.W * 0.15, y: pres.H * 0.3, w: pres.W * 0.7, h: pres.H * 0.32, rot: 0, wa: Object.assign(L.clone(L.dlg.WA_STYLES[4]), { text: 'Thank you', font: 'Arial Black', b: true, warp: 'textArchUp', style: 4 }) };
-    s.shapes.push(wa);
-    const q = M.newTextBox(pres, s, pres.W * 0.15, pres.H * 0.66, pres.W * 0.7, 36, true);
-    q.tx.ps = [T.para('Questions? expansion@harborandpine.example', { algn: 'ctr' }, { sz: 20, color: 'tx1' })];
-    s.shapes.push(q);
-    s.anims = [{ id: L.uid('a'), sid: wa.id, cls: 'entr', eff: 'zoom', start: 'after', dur: 750, delay: 0, by: 'all' }];
-    s.trans = { type: 'circle', spd: 'med', click: true, after: null };
+    text(s, W * 0.05, 390, W * 0.9, 60, [P('Steady growth and a roastery with room to spare: the right moment to expand.', null, { font: MJ, sz: 20, i: true, color: 'tx2' })]);
+    s.notes = 'Lead with momentum: comparable-store growth and a roastery with headroom.';
+
+    /* 3: a chart and what it says */
+    s = add('titleOnly', 'Revenue by region', { type: 'wipe', dir: 'r' });
+    text(s, W * 0.05, 112, W * 0.6, 22, [P('Quarterly revenue in 2026, $ thousands', null, { sz: 14, color: GREY })]);
+    const ser = (i, name, vals, c) => ({ g: 0, idx: i, order: i, name, vals, fill: solid(c), color: M.resolveColor(c, design) });
+    const axis = (o) => Object.assign({ del: false, tick: 'none', lblPos: 'nextTo', crosses: 'autoZero' }, o);
+    const chart = { id: L.uid('s'), type: 'chart', name: 'Revenue chart', x: W * 0.04, y: 140, w: W * 0.6, h: 330, rot: 0, chart: {
+      v: 2, style: 2, kind: 'col', cats: ['Q1', 'Q2', 'Q3', 'Q4'],
+      groups: [{ type: 'bar', dir: 'col', grouping: 'clustered', gap: 80, overlap: -10, vary: false, axIds: ['1', '2'], si: [0, 1, 2] }],
+      series: [ser(0, 'Portland', [410, 455, 520, 560], 'accent1'), ser(1, 'Seattle', [380, 402, 446, 490], 'accent2'), ser(2, 'Monterey', [120, 138, 171, 205], 'accent3')],
+      ax: { c: axis({ kind: 'cat', id: '1', cross: '2', pos: 'b', line: { c: '#CFC4B4', w: 1 }, tx: { sz: 13, color: GREY } }),
+        v: axis({ kind: 'val', id: '2', cross: '1', pos: 'l', between: true, grid: { c: '#E8E0D4', w: 0.75 }, line: { t: 'none' }, tx: { sz: 12, color: GREY } }) },
+      gridY: true, fsz: 12, font: '+mn', textColor: 'tx1', title: '', legend: 't', legendTx: { sz: 13 },
+    } };
+    s.shapes.push(chart);
+    anim(s, chart, 'wipe', 'click', { dir: 'b', dur: 1000 });
+    const said = shape(s, 'rect', W * 0.68, 168, W * 0.27, 250, solid('#F2ECE3'), { name: 'Takeaways' });
+    said.tx = T.body([P('+38%', { algn: 'l' }, { font: MJ, sz: 54, color: 'accent2' }), P('revenue growth from Q1 to Q4', { algn: 'l' }, { sz: 16, color: 'tx1' }),
+      P('Monterey, our newest café, grew fastest: +71% in a year.', { algn: 'l', spcBef: { pts: 22 } }, { sz: 15, color: 'tx1' }),
+      P('Portland is still the largest market, at $560K a quarter.', { algn: 'l', spcBef: { pts: 12 } }, { sz: 15, color: 'tx1' })], { anchor: 't', wrap: true, autofit: 'none', ins: [22, 22, 20, 16] });
+    anim(s, said, 'fade', 'after');
+    s.notes = 'All three regions grew every quarter; Monterey proves the model works in a smaller city.';
+
+    /* 4: a table and its total */
+    s = add('table', 'Where we open next', { type: 'cover', dir: 'l' });
+    const tp = ph(s, 'tbl');
+    const rows = [['Phase', 'Market', 'New cafés', 'Opens'], ['1', 'Tacoma, WA', '2', 'March 2027'], ['2', 'Santa Cruz, CA', '3', 'June 2027'], ['3', 'Bend, OR', '2', 'September 2027'], ['4', 'Boise, ID', '3', 'January 2028']];
+    const t = M.newTable(pres, s, rows.length, 4, tp.x, 150, W * 0.56);
+    t.ph = L.clone(tp.ph);
+    rows.forEach((row, ri) => row.forEach((v, ci) => {
+      const cell = t.tbl.rows[ri].cells[ci];
+      const rp = ri === 0 ? { sz: 15, b: true, color: 'bg1' } : ci === 0 ? { font: MJ, sz: 18, b: true, color: 'accent2' } : { sz: 17, color: 'tx1' };
+      cell.tx.ps = [P(v, { algn: ci === 0 || ci === 2 ? 'ctr' : 'l' }, rp)];
+      cell.tx.anchor = 'ctr';
+      cell.tx.ins = [10, 3.6, 10, 3.6];
+      cell.fill = ri === 0 ? solid('accent1') : ri % 2 ? solid('#FFFFFF') : solid('#F2ECE3');
+      for (const k of ['l', 'r', 't']) cell.bd[k] = { t: 'none' };
+      cell.bd.b = ri === 0 ? { t: 'none' } : { c: '#E4DBCD', w: 1, dash: 'solid' };
+    }));
+    t.tbl.rows.forEach((r) => { r.h = 52; });
+    t.h = 52 * rows.length;
+    t.tbl.cols = [0.15, 0.39, 0.2, 0.26].map((f) => t.w * f);
+    s.shapes.splice(s.shapes.indexOf(tp), 1, t);
+    const ten = text(s, W * 0.68, 160, W * 0.27, 250, [P('10', null, { font: MJ, sz: 88, color: 'accent2' }), P('new cafés by January 2028', null, { sz: 18, color: 'tx1' }),
+      P('Each phase starts only when the one before it pays its way.', { spcBef: { pts: 18 } }, { sz: 15, color: GREY })]);
+    anim(s, ten, 'fade', 'click');
+    s.notes = 'Ten new cafés over five quarters; each phase starts only after the prior one is cash-positive.';
+
+    /* 5: a timeline drawn with shapes */
+    s = add('titleOnly', 'From lease to first pour');
+    const x0 = 290, k = (W * 0.95 - 24 - x0) / 26, y0 = 196, rh = 60;
+    const steps = [['Site & lease', 'Find the corner, sign the lease', 0, 8, 'accent1'], ['Build-out', 'Design, permits and construction', 8, 12, 'accent2'],
+      ['Hire & train', 'Baristas train at a sister café', 20, 4, 'hlink'], ['Soft open', 'Friends and neighbours first', 24, 2, 'accent6']];
+    for (let wk = 0; wk <= 24; wk += 4) {
+      line(s, x0 + wk * k, 178, x0 + wk * k, y0 + rh * 4 - 8, { c: '#E4DBCD', w: 0.75, dash: 'solid' });
+      text(s, x0 + wk * k - 30, 152, 60, 18, [P(wk ? String(wk) : 'Week 0', { algn: 'ctr' }, { sz: 12, color: GREY })]);
+    }
+    steps.forEach(([name, what, from, weeks, c], i) => {
+      const y = y0 + i * rh;
+      text(s, W * 0.05, y + 4, x0 - W * 0.05 - 20, rh - 8, [P(name, null, { font: MJ, sz: 18, color: 'tx2' }), P(what, null, { sz: 12, color: GREY })]);
+      const bar = shape(s, 'roundRect', x0 + from * k, y + 12, weeks * k, 28, solid(c), { adj: { adj: 50000 }, name: name });
+      /* how long, after the bar, or before it where the bar runs up to opening day */
+      const after = from + weeks <= 20;
+      const len = text(s, after ? x0 + (from + weeks) * k + 8 : x0 + from * k - 88, y + 17, 80, 20, [P(weeks + ' weeks', { algn: after ? 'l' : 'r' }, { sz: 13, b: true, color: c })]);
+      anim(s, bar, 'wipe', i ? 'after' : 'click', { dir: 'l' });
+      anim(s, len, 'fade', 'with', { delay: 200 });
+    });
+    const open = x0 + 26 * k;
+    line(s, open, 170, open, y0 + rh * 4, { c: 'accent2', w: 1.5, dash: 'dash' });
+    text(s, open - 70, y0 + rh * 4 + 6, 140, 40, [P('Opening day', { algn: 'ctr' }, { sz: 14, b: true, color: 'accent2' }), P('week 26', { algn: 'ctr' }, { sz: 12, color: GREY })]);
+    s.notes = 'About 26 weeks from signed lease to opening day. Build-out is the long pole; we start hiring before it ends.';
+
+    /* 6: an IntelliArt funnel (js/diagram.js) beside the tests a city has to pass */
+    s = add('titleOnly', 'How we choose a city');
+    const fn = L.diagram.make(pres, s, { x: W * 0.05, y: 140, w: W * 0.42, h: 330 }, 'funnel', ['40 markets screened', '12 visited', '5 shortlisted', '4 chosen'], { colors: 'accent1-range', style: 'flat' });
+    anim(s, fn, 'fade', 'click');
+    const tests = [['Foot traffic', 'At least 4,000 people pass the site on a weekday morning.'], ['Rent', 'Under 9% of the sales we forecast for the site.'], ['Fresh beans', 'Within two hours of the roastery, so beans arrive the day they are roasted.']];
+    tests.forEach(([head, why], i) => {
+      const y = 158 + i * 100;
+      const n = shape(s, 'ellipse', W * 0.53, y, 34, 34, solid('accent2'), { name: 'Test ' + (i + 1) });
+      n.tx = T.body([P(String(i + 1), { algn: 'ctr' }, { font: MJ, sz: 16, b: true, color: 'bg1' })], { anchor: 'ctr', wrap: false, autofit: 'none', ins: [0, 0, 0, 0] });
+      const tb = text(s, W * 0.53 + 50, y + 2, W * 0.42 - 50, 80, [P(head, null, { font: MJ, sz: 20, color: 'tx2' }), P(why, { spcBef: { pts: 4 } }, { sz: 15, color: 'tx1' })]);
+      const g = group(s, head, [n, tb]);
+      anim(s, g, 'fade', 'after');
+    });
+    s.notes = 'Each city has to clear foot traffic, rent and a roastery-delivery radius before we visit.';
+
+    /* 7: the asks, built paragraph by paragraph, and the figure that matters */
+    s = add('text', 'What we need from the board', { type: 'push', dir: 'l' });
+    const b = ph(s, 'body');
+    b.w = W * 0.56;
+    b.tx.ps = T.fromLines([['Approve the $4.2M capital plan', 'Ten cafés over five quarters, from operating cash and a credit line'], ['Green-light a second roaster in Q2', 'Doubles capacity before the third phase opens'], ['Name an executive sponsor for Boise', 'Our first market away from the coast']]
+      .flatMap(([ask, why]) => [{ t: ask, rp: { sz: 24, color: 'tx2' }, pp: { spcBef: { pts: 18 } } }, { t: why, lvl: 1, rp: { sz: 16, color: GREY }, pp: { spcBef: { pts: 4 }, marL: 27, indent: 0, bu: { t: 'none' } } }]));
+    const card = shape(s, 'rect', W * 0.65, 160, W * 0.3, 262, solid('tx2'), { name: 'Capital plan' });
+    card.tx = T.body([P('$4.2M', { algn: 'l' }, { font: MJ, sz: 60, color: 'accent5' }), P('capital plan, 2027–28', { algn: 'l' }, { sz: 18, color: 'bg1' }),
+      P('Paid back in three and a half years', { algn: 'l', spcBef: { pts: 16 } }, { sz: 14, color: 'accent3' })], { anchor: 'b', wrap: true, autofit: 'none', ins: [24, 20, 20, 26] });
+    const pill = shape(s, 'roundRect', W * 0.65 + 24, 184, 190, 32, solid('accent2'), { adj: { adj: 50000 }, name: 'Decision needed today' });
+    pill.tx = T.body([P('Decision needed today', { algn: 'ctr' }, { sz: 14, b: true, color: 'bg1' })], { anchor: 'ctr', wrap: false, autofit: 'none', ins: [8, 0, 8, 0] });
+    s.anims = [{ id: L.uid('a'), sid: b.id, cls: 'entr', eff: 'flyIn', dir: 'l', start: 'click', dur: 500, delay: 0, by: 'para' }];
+    anim(s, card, 'zoom', 'after', { delay: 250 });
+    anim(s, pill, 'zoom', 'with', { delay: 250 });
+    s.anims.push({ id: L.uid('a'), sid: pill.id, cls: 'emph', eff: 'teeter', start: 'after', dur: 1000, delay: 0, by: 'all' });
+
+    /* 8: thanks, on the pine of the title slide */
+    s = add('blank', null, { type: 'circle' });
+    s.bg = solid('tx2');
+    s.hideMaster = true;
+    const thanks = text(s, W * 0.1, H * 0.3, W * 0.8, 90, [P('Thank you', { algn: 'ctr' }, { font: MJ, sz: 66, color: 'bg1' })], { anchor: 'b' });
+    shape(s, 'rect', W / 2 - 24, H * 0.5, 48, 4, solid('accent2'), { name: 'Rule' });
+    text(s, W * 0.1, H * 0.55, W * 0.8, 30, [P('Questions? expansion@harborandpine.example', { algn: 'ctr' }, { sz: 20, color: 'accent5' })]);
+    anim(s, thanks, 'zoom', 'after', { dur: 750 });
     pres.hf = Object.assign(pres.hf, { num: true, notOnTitle: true });
     return pres;
   }
@@ -2098,6 +2183,7 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     if (window.VO) VO.setIcon(L.icons.app(32));
     buildMenus();
     buildToolbars();
+    L.ribbonUI.init();
     buildStatus();
     /* opened from the Start Center: a template, or blank (a new presentation, or to open a file into); else the sample */
     const launch = window.VO && VO.launch;
@@ -2106,6 +2192,8 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     L.panes.left.mount(L.$('#leftpane'));
     L.panes.notes.mount(L.$('#notes'));
     L.panes.task.mount(L.$('#taskpane'));
+    /* the open task pane follows the selected object to its tool set (common/ribbon.js) */
+    L.ribbonUI.follow({ task: L.panes.task, sets: { smartart: 'diagramText', picture: true, drawing: true, table: true, wordart: true }, on: () => A.opts.paneFollows !== false, close: () => A.toggleTask(false) });
     E.mount(L.$('#editorwrap'));
     A.altView = h('div', { id: 'altview', style: 'flex:1;min-width:0;position:relative', hidden: true });
     L.$('#main').insertBefore(A.altView, L.$('#taskpane'));
@@ -2120,7 +2208,8 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     setupSplitters();
     setupDrop();
     wire();
-    A.loadPres(L.pres, blank ? 'Presentation1' : 'Harbor & Pine — 2027 Expansion (sample)');
+    if (launch && launch.n) A.untitled = launch.n;   // the desktop app's number for it
+    A.loadPres(L.pres, blank ? 'Presentation' + (A.untitled || 1) : 'Harbor & Pine — 2027 Expansion (sample)');
     const wantTask = A.opts.taskOpen;
     L.panes.task.show('getting-started');
     if (!wantTask) { L.$('#taskpane').hidden = true; A.opts.taskOpen = false; }
@@ -2132,6 +2221,8 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
     if (window.VO) VO.attach('lectern', {
       async open(f, o) {
         await A.openFile(f);
+        /* a presentation a page made (desktop app): never saved */
+        if (o && o.made) { A.saved = false; A.fileName = o.name.replace(/\.(pptx|ppsx|potx|pptm|ppsm|potm)$/i, ''); A.updateTitle(); }
         if (o?.draft) L.opc.recoverLosses(L.pres, o.lossState);
         /* an unsaved version: the changes are not saved yet, and a never-saved presentation still needs Save As */
         if (o && o.draft) { L.hist.dirty = true; A.saved = !!o.saved; A.fileName = o.name.replace(/\.(pptx|ppsx|potx|pptm|ppsm|potm)$/i, ''); A.updateTitle(); A.status('Recovered the unsaved changes. Save the presentation to keep them.'); ui.refresh(); }
@@ -2141,12 +2232,16 @@ addEventListener('resize',fit);fit();show(0);<\/script></body></html>`], { type:
       isDirty: (p) => p === L.pres && !!L.hist.dirty,
       current: () => L.pres,
       showRecovery() { A.opts.taskOpen = true; L.$('#taskpane').hidden = false; L.panes.task.show('recovery'); },
+      pristine,
+      close: confirmDiscard,
       thumb: () => L.pres.slides[0] && A.slideCanvas(L.pres.slides[0], 480),
       message: (t) => ui.msg(t, { icon: 'warn' }),
       templates: () => L.templates.list().map(({ id, name }) => ({ id, name })),
     });
   };
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => A.init());
-  else A.init();
+  /* once the page and the UI's dictionary are here (common/i18n.js) */
+  const boot = () => (window.VO && VO.i18n ? VO.i18n.whenReady(() => A.init()) : A.init());
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
 })();
