@@ -5,6 +5,8 @@
   const L = root.L;
   const M = L.model, F = L.formula, NF = L.numfmt;
   const XS = (L.xmlss = {});
+  /* the messages the user sees (shown translated where they are shown): N marks them for the catalog */
+  const N = (s) => s;
   const SS = 'urn:schemas-microsoft-com:office:spreadsheet';
 
   /* ------------------------------------------------------------ R1C1 ⇄ A1 */
@@ -143,7 +145,7 @@
   }
   XS.read = async function (bytes) {
     const text = L.csv ? L.csv.decode(bytes).text : new TextDecoder().decode(bytes);
-    if (!/urn:schemas-microsoft-com:office:spreadsheet/.test(text)) throw Object.assign(new Error('This file is not an XML Spreadsheet 2003 workbook.'), { code: 'format' });
+    if (!/urn:schemas-microsoft-com:office:spreadsheet/.test(text)) throw Object.assign(new Error(N('This file is not an XML Spreadsheet 2003 workbook.')), { code: 'format' });
     const doc = L.xml.parse(text.replace(/^[\s\S]*?(<Workbook)/, '$1'));
     const wb = new M.Workbook({ font: { name: 'Arial', sz: 10 } });
     /* styles */
@@ -220,6 +222,15 @@
           }
           for (let k = 1; k <= span; k++) Object.assign(sh.rowObj(r + k), { ht: row.ht, customHeight: row.customHeight, hidden: row.hidden, s: row.s });
           r += span;
+        }
+        /* this format keeps a merge's format on its top-left cell only; the grid draws a merge's outline from
+           the cells along its edges, as Excel does, so they take that format, as Merge Cells gives it */
+        for (const m of sh.merges) {
+          const s = (sh.get(m.r1, m.c1) || {}).s;
+          if (!s) continue;
+          const edge = (r, c) => { const cell = sh.cell(r, c); if (cell.s == null) cell.s = s; };
+          for (let c = m.c1; c <= m.c2; c++) { edge(m.r1, c); edge(m.r2, c); }
+          for (let r = m.r1 + 1; r < m.r2; r++) { edge(r, m.c1); edge(r, m.c2); }
         }
       }
       for (const n of nameEls(ws)) names.push({ el: n, scope: wb.sheets.length - 1 });

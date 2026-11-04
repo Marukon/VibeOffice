@@ -12,17 +12,36 @@
     sel: 'rgba(49, 74, 160, 0.20)', selBorder: '#000000', freeze: '#000000', pageBreak: '#0000FF',
   };
   RD.COL = COL;
+  /* the headers and the selection are chrome and follow the look (common/looks.css); gridlines, frozen
+     panes and page breaks are the sheet's own and stay */
+  const LOOKED = { hdrTop: 'hdr-a', hdrBot: 'hdr-b', hdrLine: 'hdr-line', hdrText: 'hdr-ink', hdrSelTop: 'hdr-sel-a', hdrSelBot: 'hdr-sel-b',
+    hdrSelLine: 'hdr-sel-line', hdrAllTop: 'hdr-all-a', hdrAllBot: 'hdr-all-b', sel: 'cell-sel', selBorder: 'cell-sel-border' };
+  const DEF = { ...COL };
+  RD.lookColors = () => { for (const k in LOOKED) COL[k] = L.lookColor(LOOKED[k], DEF[k]); };
+  RD.lookColors();
   RD.HL = ['#0000FF', '#008000', '#9900CC', '#800000', '#00CC33', '#CC6600', '#CC0099'];
 
   /* ------------------------------------------------------------ fills */
+  /* Cell fill patterns (patternFill patternType, ECMA-376 ST_PatternType): 8×8 bitmaps, rows top to bottom, high bit left,
+     anchored at the sheet's top-left corner. Learned from what Excel for Mac draws (its PDF of tools/patterns/sheet.mjs's
+     workbook embeds each tile as an 8×8 image, tests/patterns.excel-mac.json) and brought to the single pixels of Excel on
+     Windows: lines, grids and crosshatches drawn at double size there take every other pixel; Excel for Mac draws each
+     grey one step lighter than its name, so a grey takes the next denser one's tile, and darkGray (75 %) the inverse of
+     the 25 % tile (tests/patterns.test.mjs). */
   const PAT = {
-    darkGray: ['1110', '1011', '1110', '1011'], mediumGray: ['10', '01'], lightGray: ['1000', '0010', '1000', '0010'],
-    gray125: ['10000000', '00001000', '10000000', '00001000'], gray0625: ['1000000000000000', '0000000000000000', '0000000010000000', '0000000000000000'],
-    darkHorizontal: ['1111', '1111', '0000', '0000'], darkVertical: ['1100', '1100', '1100', '1100'], darkDown: ['1100', '0110', '0011', '1001'], darkUp: ['0011', '0110', '1100', '1001'],
-    darkGrid: ['1111', '1111', '1100', '1100'], darkTrellis: ['1111', '0110', '1111', '1001'],
-    lightHorizontal: ['1111', '0000', '0000', '0000'], lightVertical: ['1000', '1000', '1000', '1000'], lightDown: ['1000', '0100', '0010', '0001'], lightUp: ['0001', '0010', '0100', '1000'],
-    lightGrid: ['1111', '1000', '1000', '1000'], lightTrellis: ['1010', '0101', '1010', '0000'],
+    darkGray: [0x77, 0xDD, 0x77, 0xDD, 0x77, 0xDD, 0x77, 0xDD], mediumGray: [0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55],
+    lightGray: [0x88, 0x22, 0x88, 0x22, 0x88, 0x22, 0x88, 0x22], gray125: [0x88, 0, 0x22, 0, 0x88, 0, 0x22, 0],
+    gray0625: [0x80, 0, 0x08, 0, 0x80, 0, 0x08, 0], darkHorizontal: [0xFF, 0xFF, 0, 0, 0xFF, 0xFF, 0, 0],
+    darkVertical: [0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC], darkDown: [0xCC, 0x66, 0x33, 0x99, 0xCC, 0x66, 0x33, 0x99],
+    darkUp: [0x66, 0xCC, 0x99, 0x33, 0x66, 0xCC, 0x99, 0x33], darkGrid: [0xCC, 0xCC, 0x33, 0x33, 0xCC, 0xCC, 0x33, 0x33],
+    darkTrellis: [0xFF, 0x66, 0xFF, 0x99, 0xFF, 0x66, 0xFF, 0x99], lightHorizontal: [0xFF, 0, 0, 0, 0xFF, 0, 0, 0],
+    lightVertical: [0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88], lightDown: [0x88, 0x44, 0x22, 0x11, 0x88, 0x44, 0x22, 0x11],
+    lightUp: [0x22, 0x44, 0x88, 0x11, 0x22, 0x44, 0x88, 0x11], lightGrid: [0xFF, 0x88, 0x88, 0x88, 0xFF, 0x88, 0x88, 0x88],
+    lightTrellis: [0xAA, 0x44, 0xAA, 0x11, 0xAA, 0x44, 0xAA, 0x11],
   };
+  RD.CELL_PATTERNS = PAT;
+  /** a cell pattern as an 8×8 SVG data URL (the Format Cells swatches) */
+  RD.patternURL = (type, fg, bg) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 8 8" shape-rendering="crispEdges"><rect width="8" height="8" fill="${bg}"/><path d="${L.geom.patternPath(PAT[type])}" fill="${fg}"/></svg>`)}`;
   const patCache = new Map();
   function pattern(ctx, type, fg, bg) {
     const key = type + fg + bg;
@@ -31,11 +50,11 @@
     const rows = PAT[type];
     if (!rows || typeof document === 'undefined') return fg;
     const c = document.createElement('canvas');
-    c.width = rows[0].length; c.height = rows.length;
+    c.width = c.height = 8;
     const x = c.getContext('2d');
-    x.fillStyle = bg; x.fillRect(0, 0, c.width, c.height);
+    x.fillStyle = bg; x.fillRect(0, 0, 8, 8);
     x.fillStyle = fg;
-    rows.forEach((row, i) => { for (let j = 0; j < row.length; j++) if (row[j] === '1') x.fillRect(j, i, 1, 1); });
+    rows.forEach((row, i) => { for (let j = 0; j < 8; j++) if (row & (0x80 >> j)) x.fillRect(j, i, 1, 1); });
     p = ctx.createPattern(c, 'repeat');
     patCache.set(key, p);
     return p;
@@ -99,6 +118,13 @@
     ctx.restore();
   }
   RD.edge = edge;
+
+  function borders(st, ts, cf) {
+    let b = st.border;
+    if (ts && ts.border) b = Object.assign({}, ts.border, b || {});
+    if (cf && cf.dxf && cf.dxf.border) b = Object.assign({}, b || {}, cf.dxf.border);
+    return b;
+  }
 
   /* ------------------------------------------------------------ icon sets */
   const ICONSETS = {
@@ -333,16 +359,22 @@
     }
     const mi = LY.mergeIndex(sh);
     const tstyle = L.tstyle && wb.tables.length ? L.tstyle : null;
+    const borderAt = (r, c) => {
+      const cell = sh.get(r, c);
+      return borders(LY.styleOf(sh, r, c, cell), tstyle && tstyle.at(sh, r, c), sh.cf.length && L.cf.at(sh, r, c, cell));
+    };
     /* collect cells: stored cells plus styled rows / columns */
     const items = [];
     const doneMerge = new Set();
     const colStyled = [];
     for (let c = c0; c <= c1; c++) { const o = sh.cols[c] || (sh.colTail && c >= sh.colTail.from ? sh.colTail.o : null); if (o && o.s) colStyled.push(c); }
     const rowRange = (r) => sh.rows[r];
-    /* merged areas that start above / left of the viewport */
+    /* Merges whose top-left cell is offscreen, absent or hidden still have a visible outline. */
     for (const m of sh.merges) {
       if (m.r2 < r0 || m.r1 > r1 || m.c2 < c0 || m.c1 > c1) continue;
-      if (m.r1 < r0 || m.c1 < c0) items.push({ r: m.r1, c: m.c1, cell: sh.get(m.r1, m.c1), m });
+      const cell = sh.get(m.r1, m.c1);
+      if (m.r1 < r0 || m.c1 < c0 || !cell || X(m.c1 + 1) === X(m.c1) || Y(m.r1 + 1) === Y(m.r1))
+        items.push({ r: m.r1, c: m.c1, cell, m });
     }
     for (let r = r0; r <= r1; r++) {
       if (ys[r - r0 + 1] === ys[r - r0]) continue; /* hidden row */
@@ -400,17 +432,35 @@
     /* pass 3: borders */
     for (const it of items) {
       if (it.w <= 0 || it.h <= 0 || !it.st) continue;
-      let b = it.st.border;
-      if (it.ts && it.ts.border) b = Object.assign({}, it.ts.border, b || {});
-      if (it.cf && it.cf.dxf && it.cf.dxf.border) b = Object.assign({}, b || {}, it.cf.dxf.border);
-      if (!b) continue;
-      const { x, y, w, h } = it;
+      const b = borders(it.st, it.ts, it.cf);
+      if (!b && !it.m) continue;
+      const { x, y, w, h, m } = it;
       const right = x + w, bottom = y + h;
-      if (b.t) edge(ctx, wb, b.t, x - 1, y, right, y, true, z);
-      if (b.b) edge(ctx, wb, b.b, x - 1, bottom, right, bottom, true, z);
-      if (b.l) edge(ctx, wb, b.l, x, y - 1, x, bottom, false, z);
-      if (b.r) edge(ctx, wb, b.r, right, y - 1, right, bottom, false, z);
-      if (b.d) {
+      if (m) {
+        /* Excel stores a merge's outline on its perimeter cells, including blank ones. Each cell
+           supplies only its own segment; internal edges stay hidden and styles can vary along a side.
+           Limit the walks to this pane, so even a whole-column merge visits only visible rows. */
+        for (let c = Math.max(m.c1, c0); c <= Math.min(m.c2, c1); c++) {
+          const x1 = X(c), x2 = X(c + 1);
+          if (x2 <= x1) continue;
+          const top = borderAt(m.r1, c), bot = borderAt(m.r2, c);
+          if (top && top.t) edge(ctx, wb, top.t, x1 - 1, y, x2, y, true, z);
+          if (bot && bot.b) edge(ctx, wb, bot.b, x1 - 1, bottom, x2, bottom, true, z);
+        }
+        for (let r = Math.max(m.r1, r0); r <= Math.min(m.r2, r1); r++) {
+          const y1 = Y(r), y2 = Y(r + 1);
+          if (y2 <= y1) continue;
+          const left = borderAt(r, m.c1), rt = borderAt(r, m.c2);
+          if (left && left.l) edge(ctx, wb, left.l, x, y1 - 1, x, y2, false, z);
+          if (rt && rt.r) edge(ctx, wb, rt.r, right, y1 - 1, right, y2, false, z);
+        }
+      } else {
+        if (b.t) edge(ctx, wb, b.t, x - 1, y, right, y, true, z);
+        if (b.b) edge(ctx, wb, b.b, x - 1, bottom, right, bottom, true, z);
+        if (b.l) edge(ctx, wb, b.l, x, y - 1, x, bottom, false, z);
+        if (b.r) edge(ctx, wb, b.r, right, y - 1, right, bottom, false, z);
+      }
+      if (b && b.d) {
         ctx.save();
         ctx.strokeStyle = M.colorHex(wb, b.d.color, '#000000');
         ctx.lineWidth = RD.borderWidth(b.d);
@@ -795,7 +845,7 @@
       ctx.font = `bold ${Math.round(size)}px Arial, Arimo, sans-serif`;
       ctx.fillStyle = 'rgba(150,150,150,0.55)';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('Page ' + n, (x1 + x2) / 2, (y1 + y2) / 2);
+      ctx.fillText(L.t('Page {0}', n), (x1 + x2) / 2, (y1 + y2) / 2);
     };
     if (across) { for (let i = 0; i < rs.length - 1; i++) for (let j = 0; j < cs.length - 1; j++) label(i, j); }
     else { for (let j = 0; j < cs.length - 1; j++) for (let i = 0; i < rs.length - 1; i++) label(i, j); }

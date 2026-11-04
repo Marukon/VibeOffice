@@ -1,7 +1,7 @@
 /* VibeOffice — synchronous SHA-1 / SHA-256 / SHA-384 / SHA-512 for the password key derivation of encrypted
  * Office files (crypto.js). Office hashes the password 100,000 times; doing that through WebCrypto costs a
  * promise per round (seconds), while these run the loop in a fraction of a second.
- * Checked against WebCrypto in tools/ledger/test/sha.test.js. */
+ * Checked against WebCrypto in tests/ledger/sha.test.js. */
 (function (root) {
   'use strict';
   const L = root.L || (root.L = {});
@@ -147,4 +147,12 @@
   const BY_NAME = { 'SHA-1': SHA.sha1, 'SHA-256': SHA.sha256, 'SHA-384': SHA.sha384, 'SHA-512': SHA.sha512 };
   /** hash by WebCrypto-style name ('SHA-1' … 'SHA-512'); null for other algorithms */
   SHA.get = (name) => BY_NAME[name] || null;
+  /** WebCrypto's digest where the page has it, these otherwise: the browser gives crypto.subtle only to secure
+   * (https) pages, and a copy of the suite may be served over plain http; resolves to a Uint8Array */
+  SHA.digest = async (name, bytes) => {
+    if (root.crypto && root.crypto.subtle) return new Uint8Array(await root.crypto.subtle.digest(name, bytes));
+    const f = SHA.get(name);
+    if (!f) throw new Error('Unsupported hash: ' + name);
+    return f(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
+  };
 })(typeof window !== 'undefined' ? window : globalThis);

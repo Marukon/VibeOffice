@@ -100,7 +100,7 @@
       case 'upperLetter': return n > 0 ? String.fromCharCode(65 + ((n - 1) % 26)).repeat(Math.floor((n - 1) / 26) + 1) : '';
       case 'lowerLetter': return n > 0 ? String.fromCharCode(97 + ((n - 1) % 26)).repeat(Math.floor((n - 1) / 26) + 1) : '';
       case 'decimalZero': return n < 10 ? '0' + n : String(n);
-      case 'ordinal': { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
+      case 'ordinal': return n + D.ordinalSuffix(n);
       case 'cardinalText': return D.numWords(n, false);
       case 'ordinalText': return D.numWords(n, true);
       case 'chicago': { const sy = ['*', '†', '‡', '§']; return sy[(n - 1) % 4].repeat(Math.floor((n - 1) / 4) + 1); }
@@ -115,6 +115,11 @@
   const ONES = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
   const TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
   const ORD = { one: 'first', two: 'second', three: 'third', five: 'fifth', eight: 'eighth', nine: 'ninth', twelve: 'twelfth' };
+  /** English ordinal suffix: 1st, 2nd, 3rd, 4th, but 11th, 12th, 13th (and 111th …); th for 0 and below */
+  D.ordinalSuffix = (n) => {
+    if (!(n > 0) || [11, 12, 13].includes(n % 100)) return 'th';
+    return { 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th';
+  };
   D.numWords = function (n, ordinal) {
     const w = (x) => {
       if (x < 20) return ONES[x];
@@ -217,6 +222,22 @@
     const o = {};
     for (const s of st) o[s.id] = s;
     return o;
+  };
+  /** the id to use for built-in style id in document d: the file's own style of that name when it has one under another id (Word in
+   *  other languages writes Überschrift1 for heading 1; the reader marks the built-in sameAs), otherwise id, added from the built-ins */
+  D.useStyle = function (d, id) {
+    const s = d.styles[id];
+    if (s) return s.sameAs && d.styles[s.sameAs] ? s.sameAs : id;
+    const b = D.builtinStyles()[id];
+    if (b) { D.touchKey(d, 'styles'); d.styles[id] = b; D.stylesChanged(); }
+    return id;
+  };
+  /** whether style id in d is one of the built-ins named: by its name, so a file's own id in another language counts (case and spaces
+   *  ignored; an id d doesn't define is compared itself) */
+  D.isStyle = (d, id, ...names) => {
+    if (!id) return false;
+    const key = (n) => String(n).toLowerCase().replace(/\s+/g, ''), own = key(d?.styles?.[id]?.name || id);
+    return names.some((n) => key(n) === own);
   };
   D.styleDisplayName = (s) => {
     if (!s) return '';
@@ -326,6 +347,32 @@
     const s = L.store.get('defaultSect', null);
     if (s && !opts.modern) Object.assign(doc.sect, s);
     doc.main.blocks.push(D.para());
+    return doc;
+  };
+
+  /** a new document as the Office of a language makes it (loc: common/locales.js, L.locale.get()): page, line grid,
+      fonts, languages, the Normal style, tab stops, punctuation compression; the user's own Default… page setup
+      (L.store 'defaultSect') comes first. Only for a document the user starts, never for one that is opened. */
+  D.applyLocale = function (doc, loc) {
+    if (!loc || !loc.sect) return doc;
+    Object.assign(doc.sect, L.clone(loc.sect), L.store.get('defaultSect', null) || {});
+    if (loc.rPr) Object.assign(doc.defaults.rPr, loc.rPr);
+    if (loc.pPr && doc.styles.Normal) doc.styles.Normal.pPr = Object.assign({}, doc.styles.Normal.pPr, loc.pPr);
+    if (loc.defTab) doc.settings.defTab = loc.defTab;
+    if (loc.charSpacing) doc.settings.charSpacing = loc.charSpacing;
+    if (loc.themeLang) doc.settings.themeLang = Object.assign({}, loc.themeLang);
+    if (loc.themeEA) Object.assign(doc.theme, { minorEA: loc.themeEA.minor, majorEA: loc.themeEA.major });
+    /* a built-in style with a font of its own takes the language's East Asian font beside it where that differs from
+       the text's: the theme's heading font beside Arial and Tahoma (headings, Title, Balloon Text…), as that Office's
+       styles take +見出し (majorEastAsia: Japanese ＭＳ ゴシック), its body font beside the others (Courier New). In the
+       corpus (tools/locale-defaults.py) Japanese themes have ＭＳ ゴシック for headings in 8 files of 9 and Balloon Text
+       takes it in 3; Korean and Chinese themes have the text's font for both, so their styles get none */
+    if (loc.themeEA && loc.rPr) for (const s of Object.values(doc.styles)) {
+      const f = s.rPr && s.rPr.font;
+      if (!f || s.rPr.fontEA) continue;
+      const ea = /^(Arial|Tahoma)$/.test(f) ? loc.themeEA.major : loc.themeEA.minor;
+      if (ea !== loc.rPr.fontEA) s.rPr = Object.assign({}, s.rPr, { fontEA: ea });
+    }
     return doc;
   };
 
@@ -640,7 +687,8 @@
     const tbStories = [];
     for (const st of allStories) {
       D.walk(st, (b) => {
-        if (b.t === 'p') for (const it of b.runs) if ((it.t === 'shape' || it.t === 'group') && it.tb) {
+        /* a shape's text box, or each of a group's (a diagram's shapes): a group has none of its own */
+        if (b.t === 'p') for (const it of b.runs) if ((it.t === 'shape' && it.tb) || it.t === 'group') {
           for (const tb of it.t === 'group' ? D.groupTextboxes(it) : [it.tb]) {
             tb.kind = 'tb';
             // Runtime back-reference, rebuilt on indexing. Keep it out of JSON
@@ -788,13 +836,14 @@
     return true;
   };
   D.sameRPr = sameR;
-  /** merge adjacent text runs with equal formatting, drop empty text runs */
+  /** merge adjacent text runs with equal formatting, drop empty text runs; runs read with different ids (editing sessions,
+   *  docx-read's elementIds) stay apart, as Word places text per rsid run */
   D.normalize = function (p) {
     const out = [];
     for (const it of p.runs) {
       if (it.t === 'text' && !it.text) continue;
       const last = out[out.length - 1];
-      if (last && it.t === 'text' && last.t === 'text' && !it.keep?.ac && !last.keep?.ac && sameR(last.rPr, it.rPr)) { out[out.length - 1] = Object.assign({}, last, { text: last.text + it.text }); continue; }
+      if (last && it.t === 'text' && last.t === 'text' && !it.keep?.ac && !last.keep?.ac && sameR(last.rPr, it.rPr) && sameR({ ids: last.ids }, { ids: it.ids })) { out[out.length - 1] = Object.assign({}, last, { text: last.text + it.text }); continue; }
       out.push(it);
     }
     p.runs = out;
@@ -820,11 +869,14 @@
   /** deep clone of blocks with fresh ids */
   D.cloneBlocks = function (blocks) {
     const c = L.preserve ? L.preserve.duplicateControls(L.clone(blocks)) : L.clone(blocks);
+    /* a copy keeps the editing sessions (w:rsid*) but not the paragraph and row ids (w14:paraId, textId): the original keeps those */
+    const own = (o) => { if (!o.ids) return; const ids = Object.fromEntries(Object.entries(o.ids).filter(([k]) => !k.startsWith('w14:'))); if (Object.keys(ids).length) o.ids = ids; else delete o.ids; };
     const fresh = (bl) => {
       for (const b of bl) {
         b.id = D.nid();
         delete b._o;
-        if (b.t === 'tbl') for (const r of b.rows) { r.id = D.nid(); for (const ce of r.cells) { ce.id = D.nid(); fresh(ce.blocks); } }
+        own(b);
+        if (b.t === 'tbl') for (const r of b.rows) { r.id = D.nid(); own(r); for (const ce of r.cells) { ce.id = D.nid(); fresh(ce.blocks); } }
         if (b.t === 'p') for (const it of b.runs) if (it.tb) fresh(it.tb.blocks);
       }
     };
@@ -898,6 +950,9 @@
   D.tx = function (label, fn, opts) {
     opts = opts || {};
     if (H.cur) { H.depth++; try { return fn(); } finally { H.depth--; } }
+    /* an edit in the middle of a drag (a moved shape, a ruler marker…) comes before the drag's own step: the drag ends
+       first, as if Esc. A text selection being made (Quire's press watcher) is no edit of its own and goes on. */
+    if (L.ui && L.ui.dragging && L.ui.dragging() && !(L.ed && L.ed.pressing && L.ed.pressing())) L.ui.dragCancel();
     const t = { label, objs: new Map(), keys: new Map(), paras: new Set(), tbls: new Set(), struct: false, global: false, full: null, selBefore: D.getSel ? D.getSel() : null, merge: opts.merge || null, time: Date.now() };
     H.cur = t;
     let res, err = null;
@@ -1049,7 +1104,7 @@
   };
   D.findStyleByName = (doc, name) => {
     const n = String(name).toLowerCase();
-    for (const k in doc.styles) { const s = doc.styles[k]; if (s.id.toLowerCase() === n || String(s.name).toLowerCase() === n || D.styleDisplayName(s).toLowerCase() === n) return s; }
+    for (const k in doc.styles) { const s = doc.styles[k]; if (s.sameAs) continue; if (s.id.toLowerCase() === n || String(s.name).toLowerCase() === n || D.styleDisplayName(s).toLowerCase() === n) return s; }
     return null;
   };
   D.uniqueStyleId = (doc, name) => { let base = String(name).replace(/[^A-Za-z0-9]/g, '') || 'Style'; let id = base, i = 1; while (doc.styles[id]) id = base + (++i); return id; };

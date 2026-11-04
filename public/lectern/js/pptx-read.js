@@ -202,6 +202,7 @@
         case 'effectLst': { const s = shadow(c, ctx); if (s) { r.shd = true; r.shdX = s; } break; }
         case 'highlight': { const v = colorOf(c, ctx); if (v) r.hl = v.c; break; }
         case 'latin': { const f = fontName(at(c, 'typeface')); if (f) r.font = f; break; }
+        case 'ea': { const f = at(c, 'typeface'); if (f) r.fontEA = f; break; }   // +mn-ea, +mj-ea or a font (L.style.fontEA)
         case 'hlinkClick': { const l = ctx.link(c); if (l) r.link = l; break; }
         default: break;
       }
@@ -744,14 +745,14 @@
     let zip;
     let password = null;
     try { zip = await L.zip.read(buffer); } catch (e) {
-      if (e && e.code === 'ole' && !e.encrypted) e.message = 'This is an older binary PowerPoint 97–2003 file (.ppt) with a .pptx name. Save it as .pptx in PowerPoint, Keynote, Google Slides or LibreOffice first.';
+      if (e && e.code === 'ole' && !e.encrypted) e.message = L.N('This is an older binary PowerPoint 97–2003 file (.ppt) with a .pptx name. Save it as .pptx in PowerPoint, Keynote, Google Slides or LibreOffice first.');
       if (!(e && e.code === 'ole' && e.encrypted && L.officeCrypto)) throw e;
       /* a presentation with a password to open: decrypt it here, in the browser */
       if (!opts.password) { const err = new Error('This presentation is password-protected.'); err.code = 'password'; throw err; }
       let inner;
       try { inner = await L.officeCrypto.decrypt(buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer), opts.password); } catch (e2) {
         const unsup = e2 && e2.message === 'unsupported';
-        const err = new Error(unsup ? 'This presentation is encrypted with a method that is not supported (only the AES encryption of PowerPoint 2007 and later is).' : e2 && /secure/.test(e2.message) ? e2.message : 'The password is incorrect. PowerPoint cannot open the file.');
+        const err = new Error(unsup ? L.N('This presentation is encrypted with a method that is not supported (only the AES encryption of PowerPoint 2007 and later is).') : e2 && /secure/.test(e2.message) ? e2.message : 'The password is incorrect. PowerPoint cannot open the file.');
         err.code = unsup ? 'unsupported' : /secure/.test(String(e2 && e2.message)) ? 'insecure' : 'badpassword';
         throw err;
       }
@@ -835,13 +836,16 @@
       const tsX = await xml(tsRel ? tsRel.target : 'ppt/tableStyles.xml');
       if (tsX) for (const st of kids(tsX, 'tblStyle')) tblStyles.set((at(st, 'styleId') || '').toUpperCase(), st);
     }
-    if (!presX || presX.localName !== 'presentation') throw new Error('This file does not contain a PowerPoint presentation.');
+    if (!presX || presX.localName !== 'presentation') throw new Error(L.N('This file does not contain a PowerPoint presentation.'));
+    const deckLang = String(at(path(presX, 'defaultTextStyle', 'lvl1pPr', 'defRPr') || presX, 'lang') || '').toLowerCase();
+    const deckScript = /^ja/.test(deckLang) ? 'Jpan' : /^ko/.test(deckLang) ? 'Hang' : /^zh-(cn|sg)/.test(deckLang) ? 'Hans' : /^zh/.test(deckLang) ? 'Hant' : null;
     const presRels = await rels(presPath);
     const sz = kid(presX, 'sldSz');
     const W = L.round(pt(num(sz, 'cx', 9144000)), 3), H = L.round(pt(num(sz, 'cy', 6858000)), 3);
-    const pres = L.model.newPresentation({ w: W, h: H, empty: true });
+    const pres = L.model.newPresentation({ w: W, h: H, empty: true, locale: false });
+    if (deckLang) pres.lang = at(path(presX, 'defaultTextStyle', 'lvl1pPr', 'defRPr'), 'lang');   // new text's language (pptx-write.js)
     if (pkg) L.opc.attach(pres, pkg);
-    if (packageError) L.opc.loss(pres, { id: 'package:unreadable', what: 'Part of this file couldn\'t be read. Anything in it that VibeOffice can\'t edit itself, such as macros or embedded objects, won\'t be saved.', detail: String(packageError), where: presPath, action: 'drop', notify: true });
+    if (packageError) L.opc.loss(pres, { id: 'package:unreadable', what: L.N('Part of this file couldn\'t be read. Anything in it that VibeOffice can\'t edit itself, such as macros or embedded objects, won\'t be saved.'), detail: String(packageError), where: presPath, action: 'drop', notify: true });
     pres.designs = {};
     pres.firstNum = num(presX, 'firstSlideNum', 1);
 
@@ -887,7 +891,16 @@
       const cs = desc(t, 'clrScheme');
       if (cs) for (const c of cs.children) { const v = color(colorEl(c), { design: null }); if (v) theme.colors[c.localName] = v.c[0] === '#' ? v.c : theme.colors[v.c] || '#000000'; }
       const fs = desc(t, 'fontScheme');
-      if (fs) { const mj = path(fs, 'majorFont', 'latin'), mn = path(fs, 'minorFont', 'latin'); if (mj && at(mj, 'typeface')) theme.fonts.major = at(mj, 'typeface'); if (mn && at(mn, 'typeface')) theme.fonts.minor = at(mn, 'typeface'); }
+      if (fs) {
+        const mj = path(fs, 'majorFont', 'latin'), mn = path(fs, 'minorFont', 'latin'); if (mj && at(mj, 'typeface')) theme.fonts.major = at(mj, 'typeface'); if (mn && at(mn, 'typeface')) theme.fonts.minor = at(mn, 'typeface');
+        /* East Asian fonts: the theme's own (a:ea), else its font for the script of the deck's language (a Japanese
+           PowerPoint's theme has <a:font script="Jpan" typeface="ＭＳ Ｐゴシック"/>) */
+        const ea = (part) => {
+          const own = path(fs, part, 'ea'), f = kids(kid(fs, part) || fs).find((c) => c.localName === 'font' && at(c, 'script') === deckScript);
+          return (own && at(own, 'typeface')) || (deckScript && f && at(f, 'typeface')) || '';
+        };
+        theme.fonts.majorEA = ea('majorFont'); theme.fonts.minorEA = ea('minorFont');
+      }
       const fm = desc(t, 'fmtScheme');
       if (fm) {
         theme.fills = kids(kid(fm, 'fillStyleLst'));
@@ -1267,6 +1280,8 @@
           const g = await smartArtFrom(gd, base, ctx);
           if (g) return g;
         }
+        /* a PowerPoint 97-2003 diagram in the slide's VML: kept as a frame (frames.js) */
+        if (/\/compatibility$/.test(uri)) return null;
         /* OLE object or unknown: try fallback picture */
         const pic = desc(el, 'pic');
         if (pic) {
@@ -1573,25 +1588,47 @@
       const relIds = kids(gd).find((c) => c.localName === 'relIds');
       if (!relIds) return null;
       const dm = ctx.rels[rid(relIds, 'dm')];
-      let drawingPath = null;
+      let drawingPath = null, sa = null;
+      const withSa = (g) => { if (g && sa) g.sa = sa; return g; };
       if (dm) {
         const dx = await xml(dm.target);
+        /* a diagram Lectern wrote (our layout ids): editable again as SmartArt (js/diagram.js) */
+        if (dx && L.saIO) try { sa = L.saIO.read(dx); } catch (e) { sa = null; }
+        /* an item's own formatting: its point's fill and outline, its text's colour, bold and italic */
+        /* a shape filled with a picture: not something our layouts carry, so the diagram stays as it came */
+        if (sa && sa.points.some(([pt]) => desc(pt, 'blipFill'))) sa = null;
+        if (sa) for (const [pt, item] of sa.points) {
+          const sp = kid(pt, 'spPr'), f = {};
+          const fe = sp && kids(sp).find((c) => /Fill$/.test(c.localName));
+          if (fe) f.fill = fill(fe, ctx);
+          if (sp && kid(sp, 'ln')) f.line = line(kid(sp, 'ln'), ctx);
+          const rp = desc(pt, 'rPr') || desc(pt, 'endParaRPr');
+          if (rp) {
+            if (at(rp, 'b') === '1') f.b = true;
+            if (at(rp, 'i') === '1') f.i = true;
+            const sf = kid(rp, 'solidFill'), c = sf && colorOf(sf, ctx);
+            if (c) f.color = c.c;
+          }
+          if (Object.keys(f).length) item.fmt = { node: f };
+        }
         const ext = dx && desc(dx, 'dataModelExt');
         if (ext && at(ext, 'relId') && ctx.rels[at(ext, 'relId')]) drawingPath = ctx.rels[at(ext, 'relId')].target;
       }
       if (!drawingPath) { const r = Object.values(ctx.rels).find((x) => x.type === 'diagramDrawing'); if (r) drawingPath = r.target; }
-      if (!drawingPath) return smartArtFromData(relIds, base, ctx);
+      if (!drawingPath) return withSa(await smartArtFromData(relIds, base, ctx));
       const dx = await xml(drawingPath);
       const tree = dx && desc(dx, 'spTree');
-      if (!tree) return smartArtFromData(relIds, base, ctx);
+      if (!tree) return withSa(await smartArtFromData(relIds, base, ctx));
       const dRels = await rels(drawingPath);
       const dctx = Object.assign({}, ctx, { rels: dRels, partPath: drawingPath, map: (b) => ({ x: base.x + b.x, y: base.y + b.y, w: b.w, h: b.h }), layout: null, pendingMedia: ctx.pendingMedia });
       dctx.media = (id) => { const r = dRels[id]; if (!r || r.external) return null; const m = mediaCache.get(r.target); if (m) return m; ctx.pendingMedia.add(r.target); return '__pending__:' + r.target; };
       const kidsS = await shapesFrom(tree, dctx, {});
       /* dsp shapes may carry a separate text frame */
       for (const sp of kids(tree, 'sp')) void sp;
-      if (!kidsS.length) return smartArtFromData(relIds, base, ctx);
-      return Object.assign(base, { type: 'group', kids: kidsS, name: base.name || 'Diagram' });
+      if (!kidsS.length) return withSa(await smartArtFromData(relIds, base, ctx));
+      const g = Object.assign(base, { type: 'group', kids: kidsS, name: base.name || 'Diagram' });
+      if (sa) g.sa = sa;
+      return g;
     }
     /**
      * SmartArt saved without its drawing (PowerPoint 2007 and some generators keep only the data model):
@@ -1808,8 +1845,8 @@
       const bg = bgOf(cSld, ctx, master.theme);
       if (bg) slide.bg = bg;
       slide.shapes = await shapesFrom(kid(cSld, 'spTree'), ctx, {});
-      /* ActiveX controls are shown by their preview pictures (they are not run here) */
-      const ctrls = kid(cSld, 'controls');
+      /* ActiveX controls are shown by their preview pictures (they are not run here) and kept as frames (frames.js) */
+      const ctrls = kid(cSld, 'controls'), source = original(ctx.partPath);
       if (ctrls) for (const c of kids(ctrls, 'control')) {
         try {
           const pic = kid(c, 'pic');
@@ -1818,19 +1855,24 @@
             /* the 2007 form: the preview lives in the legacy VML drawing */
             const vr = Object.values(ctx.rels).find((r) => r.type === 'vmlDrawing' && !r.external);
             const vml = vr ? await getText(vr.target) : null;
-            const m = vml && new RegExp('<v:shape\\b[^>]*\\b(?:o:spid|id)="_x0000_s' + String(at(c, 'spid')).replace(/[^\w]/g, '') + '"[\\s\\S]*?</v:shape>').exec(vml);
-            const im = m && /<v:imagedata\b[^>]*o:relid="([^"]+)"/.exec(m[0]);
-            const st = m && /style="([^"]*)"/.exec(m[0]);
+            const m = vml && new RegExp('<v:shape\\b[^>]*\\b(?:o:spid|id)=["\']_x0000_s' + String(at(c, 'spid')).replace(/[^\w]/g, '') + '["\'][\\s\\S]*?</v:shape>').exec(vml);
+            const im = m && /<v:imagedata\b[^>]*o:relid=["']([^"']+)["']/.exec(m[0]);
+            const st = m && /style=(["'])(.*?)\1/.exec(m[0]);
             if (im && st) {
               const vrels = await rels(vr.target);
               const r = vrels[im[1]];
               const mid = r && !r.external ? await loadMedia(r.target) : null;
-              const css = {}; st[1].split(';').forEach((kv) => { const [k, v] = kv.split(':'); if (k && v) css[k.trim()] = v.trim(); });
+              const css = {}; st[2].split(';').forEach((kv) => { const [k, v] = kv.split(':'); if (k && v) css[k.trim()] = v.trim(); });
               const ptv = (v) => (/pt$/.test(v) ? parseFloat(v) : /in$/.test(v) ? parseFloat(v) * 72 : /px$/.test(v) ? parseFloat(v) * 0.75 : parseFloat(v) || 0);
               if (mid) sh = { id: L.uid('s'), name: at(c, 'name') || 'Control', type: 'image', geom: 'rect', media: mid, x: ptv(css['margin-left'] || css.left), y: ptv(css['margin-top'] || css.top), w: ptv(css.width), h: ptv(css.height), rot: 0, crop: { l: 0, t: 0, r: 0, b: 0 }, line: { t: 'none' }, lockAspect: true, img: {} };
             }
           }
-          if (sh && !Array.isArray(sh)) { if (!sh.name) sh.name = at(c, 'name') || 'Control'; slide.shapes.push(sh); }
+          if (!sh && source) sh = L.frames.placeholder(c, c, ctrls, ctx);
+          if (sh && !Array.isArray(sh)) {
+            if (!sh.name) sh.name = at(c, 'name') || 'Control';
+            if (source) L.frames.attach([sh], c, c, ctrls, pkg, ctx.partPath);
+            slide.shapes.push(sh);
+          }
         } catch (e) { /* skip the control */ }
       }
       await finalizeMedia(ctx, slide);
@@ -1901,6 +1943,7 @@
     for (const d of Object.values(pres.designs)) [d.deco, d.titleDeco].concat(d.layoutDecos ? Object.values(d.layoutDecos) : []).forEach((list) => list && L.model.walk(list, pick));
     for (const sh of clearPics) { const v = await L.media.withTransparent(sh.media, sh.img.clear, 3); if (v) sh.img.view = v; }
     pres.keep = { values: L.preserve.values(pres), media: Object.fromEntries(Array.from(mediaCache, ([part, id]) => [id, part])) };
+    if (pkg) pres.keep.inUse = L.preserve.inUse(pres, pkg);
     await L.frames.seal(pres, mediaCache);
     L.preserve.seal(pres);
     L.preserve.readSlideLists(pres);

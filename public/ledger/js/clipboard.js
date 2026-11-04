@@ -81,7 +81,7 @@
         if (f.i) css.push('font-style:italic');
         if (f.u) css.push('text-decoration:underline');
         if (f.color) css.push('color:' + M.colorHex(sh.wb, f.color, '#000000'));
-        if (f.name) css.push(`font-family:'${f.name}'`);
+        if (f.name) css.push(`font-family:${L.cssString(f.name)}`);
         if (f.sz) css.push('font-size:' + f.sz + 'pt');
         if (st.fill && st.fill.pattern === 'solid') css.push('background:' + M.colorHex(sh.wb, st.fill.fg || st.fill.bg, '#FFFFFF'));
         if (st.align && st.align.h) css.push('text-align:' + ({ general: 'left', centerContinuous: 'center' }[st.align.h] || st.align.h));
@@ -90,7 +90,7 @@
         for (const [k, side] of [['t', 'top'], ['b', 'bottom'], ['l', 'left'], ['r', 'right']]) if (b[k]) css.push(`border-${side}:${L.render.borderWidth(b[k])}px ${b[k].style === 'double' ? 'double' : /dash|dot|hair/.test(b[k].style) ? 'dashed' : 'solid'} ${M.colorHex(sh.wb, b[k].color, '#000000')}`);
         const span = m ? ` rowspan="${m.r2 - m.r1 + 1}" colspan="${m.c2 - m.c1 + 1}"` : '';
         const num = typeof v === 'number' ? ` x:num="${v}"` : '';
-        html += `<td${span}${num} style="${css.join(';')};width:${g.cols.size(c)}px">${esc(t).replace(/\n/g, '<br>')}</td>`;
+        html += `<td${span}${num} style="${esc(css.join(';'))};width:${g.cols.size(c)}px">${esc(t).replace(/\n/g, '<br>')}</td>`;
       }
       html += '</tr>';
     }
@@ -122,7 +122,7 @@
     marqueeTimer = setInterval(() => { if (!g.state.marquee) { clearInterval(marqueeTimer); return; } g.state.marquee.phase = (g.state.marquee.phase + 2) % 8; g.paint(); }, 120);
     L.bus.emit('clipboard', clip);
     if (L.app.addOfficeClip) L.app.addOfficeClip(clip);
-    L.app.status(cut ? 'Select destination and press ENTER or choose Paste' : 'Select destination and press ENTER or choose Paste');
+    L.app.status(L.t('Select destination and press ENTER or choose Paste'));
     g.paint();
   };
 
@@ -187,7 +187,7 @@
     if (O.cutsArray(sh, [dest])) { L.ui.msg('You cannot change part of an array.', { icon: 'warn' }); return; }
     if (what === 'all' && !dest.tile && sh.merges.some((m) => M.rangesOverlap(m, dest) && !(m.r1 >= dest.r1 && m.r2 <= dest.r2 && m.c1 >= dest.c1 && m.c2 <= dest.c2))) { L.ui.msg('Cannot change part of a merged cell.', { icon: 'warn' }); return; }
     const srcWb = clip.wb;
-    O.tx(sh.wb, opts.what || opts.op || opts.transpose ? 'Paste Special' : 'Paste', () => {
+    O.tx(sh.wb, opts.what || opts.op || opts.transpose ? 'Paste Special' : L.N('Paste'), () => {
       if (what === 'colWidths') {
         for (let j = 0; j < W && j < snap.colW.length; j++) { const o = snap.colW[opts.transpose ? 0 : j]; if (o && o.w != null) O.setColWidth(sh, [dest.c1 + j], o.w); }
         return;
@@ -307,7 +307,7 @@
     const W = Math.max(...rows.map((r) => r.length));
     const dest = destFor(rows.length, W);
     if (O.cutsArray(sh, [dest])) { L.ui.msg('You cannot change part of an array.', { icon: 'warn' }); return; }
-    O.tx(sh.wb, 'Paste', () => {
+    O.tx(sh.wb, L.N('Paste'), () => {
       for (let r = dest.r1; r <= dest.r2; r++) for (let c = dest.c1; c <= dest.c2; c++) {
         const t = (rows[(r - dest.r1) % rows.length] || [])[(c - dest.c1) % W];
         if (t == null) continue;
@@ -365,7 +365,7 @@
       const nf = get('mso-number-format'); if (nf) d.nf = nf.replace(/^["']|["']$/g, '').replace(/\\(.)/g, '$1');
       return Object.keys(d).length ? d : null;
     };
-    O.tx(wb, 'Paste', () => {
+    O.tx(wb, L.N('Paste'), () => {
       for (let r = dest.r1; r <= dest.r2; r++) for (let c = dest.c1; c <= dest.c2; c++) {
         const it = (grid[(r - dest.r1) % H] || [])[(c - dest.c1) % W];
         if (it === null) continue;
@@ -393,6 +393,17 @@
   /**
    * Move (cut + paste, or drag) src on sheet `sh` to `to` (on `toSheet`, default same). copy: Ctrl-drag copies instead.
    */
+  /** whether cells of range `to` outside `except` hold a value or a formula (formatting alone doesn't count) */
+  CL.holdsData = function (sh, to, except) {
+    for (let r = to.r1; r <= Math.min(to.r2, sh.maxR); r++) {
+      const row = sh.rows[r];
+      if (row) for (let c = to.c1; c <= Math.min(to.c2, row.cells.length - 1); c++) {
+        const cl = row.cells[c];
+        if (cl && (cl.v != null || cl.f != null) && !(except && M.rangeContains(except, r, c))) return true;
+      }
+    }
+    return false;
+  };
   CL.moveRange = function (sh, src, to, copy, toSheet) {
     toSheet = toSheet || sh;
     const wb = sh.wb;
@@ -408,8 +419,7 @@
       return;
     }
     if (O.cutsArray(sh, [src]) || O.cutsArray(toSheet, [to])) { L.ui.msg('You cannot change part of an array.', { icon: 'warn' }); return; }
-    /* overwriting non-empty cells asks first (drag only) */
-    O.tx(wb, 'Move', () => {
+    O.tx(wb, L.N('Move'), () => {
       const snap = snapshot(sh, src);
       const sameSheet = toSheet === sh;
       const before = O.snapSheet(sh), before2 = sameSheet ? null : O.snapSheet(toSheet);

@@ -1,9 +1,10 @@
 /* VibeOffice — password-protected Office files (ECMA-376 Part 2 "Office Document Cryptography"):
  * .docx, .xlsx and .pptx alike. An encrypted package is an OLE compound file holding EncryptionInfo and
  * EncryptedPackage streams. Supported: Agile encryption (Office 2010 and later, AES with SHA-1/SHA-256/
- * SHA-384/SHA-512) and Standard encryption (Office 2007, AES-ECB with SHA-1). The password hashing loop uses
- * sha.js when it is loaded (fast), else WebCrypto; AES is done here so that unpadded CBC and ECB blocks can
- * be decrypted directly. Nothing leaves the browser. */
+ * SHA-384/SHA-512) and Standard encryption (Office 2007, AES-ECB with SHA-1). Needs sha.js: the password
+ * hashing loop runs there (fast), the other hashes too where the page has no WebCrypto (plain http); AES is done
+ * here so that unpadded CBC and ECB blocks can be decrypted directly, so opening works on any page. Saving with a
+ * password encrypts with WebCrypto's AES, which only secure (https) pages have. Nothing leaves the browser. */
 (function (root) {
   'use strict';
   const L = root.L || (root.L = {});
@@ -77,20 +78,18 @@
   }
 
   /* ================= AES (decryption) ================= */
-  const SBOX = new Uint8Array(256), INV = new Uint8Array(256);
-  (function () {
-    const rotl = (x, s) => ((x << s) | (x >> (8 - s))) & 0xff;
-    let p = 1, q = 1;
-    do {
-      p = p ^ ((p << 1) & 0xff) ^ (p & 0x80 ? 0x1b : 0);
-      q ^= q << 1; q ^= q << 2; q ^= q << 4; q &= 0xff; if (q & 0x80) q ^= 0x09;
-      SBOX[p] = (q ^ rotl(q, 1) ^ rotl(q, 2) ^ rotl(q, 3) ^ rotl(q, 4) ^ 0x63) & 0xff;
-    } while (p !== 1);
-    SBOX[0] = 0x63;
-    for (let i = 0; i < 256; i++) INV[SBOX[i]] = i;
-  })();
   const xtime = (b) => ((b << 1) ^ (b & 0x80 ? 0x1b : 0)) & 0xff;
   const gmul = (a, b) => { let r = 0; while (b) { if (b & 1) r ^= a; a = xtime(a); b >>= 1; } return r; };
+  /* the S-box from its definition (FIPS 197, 5.1.1): the multiplicative inverse in GF(2^8), b^254 (0 stays 0), then
+     the affine map b ^ (b <<< 1) ^ (b <<< 2) ^ (b <<< 3) ^ (b <<< 4) ^ 0x63 */
+  const SBOX = new Uint8Array(256), INV = new Uint8Array(256);
+  const rotl8 = (x, n) => ((x << n) | (x >> (8 - n))) & 0xff;
+  for (let b = 0; b < 256; b++) {
+    let inv = 1, sq = b;
+    for (let i = 1; i < 8; i++) { sq = gmul(sq, sq); inv = gmul(inv, sq); }   // b^2 · b^4 · … · b^128 = b^254
+    SBOX[b] = inv ^ rotl8(inv, 1) ^ rotl8(inv, 2) ^ rotl8(inv, 3) ^ rotl8(inv, 4) ^ 0x63;
+    INV[SBOX[b]] = b;
+  }
   const M9 = new Uint8Array(256), M11 = new Uint8Array(256), M13 = new Uint8Array(256), M14 = new Uint8Array(256);
   for (let i = 0; i < 256; i++) { M9[i] = gmul(i, 9); M11[i] = gmul(i, 11); M13[i] = gmul(i, 13); M14[i] = gmul(i, 14); }
   function expandKey(key) {
@@ -140,7 +139,7 @@
   const digest = async (alg, ...parts) => {
     let len = 0; for (const p of parts) len += p.length;
     const buf = new Uint8Array(len); let o = 0; for (const p of parts) { buf.set(p, o); o += p.length; }
-    return new Uint8Array(await crypto.subtle.digest(alg, buf));
+    return L.sha.digest(alg, buf);   /* common/sha.js: also on a page served over plain http */
   };
   const u32 = (n) => new Uint8Array([n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255]);
   const utf16 = (s) => { const b = new Uint8Array(s.length * 2); for (let i = 0; i < s.length; i++) { b[2 * i] = s.charCodeAt(i) & 255; b[2 * i + 1] = s.charCodeAt(i) >> 8; } return b; };
@@ -368,7 +367,6 @@
 
   /** decrypt an encrypted Office package; resolves to the inner .xlsx bytes */
   OC.decrypt = async function (u8, password) {
-    if (!(root.crypto && root.crypto.subtle)) throw new Error('Opening password-protected files needs a secure (https) page.');
     const c = cfb(u8);
     const info = c.stream('EncryptionInfo'), pkg = c.stream('EncryptedPackage');
     if (!info || !pkg) throw new Error('unsupported');
